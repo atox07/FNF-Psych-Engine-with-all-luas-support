@@ -9,6 +9,7 @@ import objects.TypedAlphabet;
 import cutscenes.DialogueBoxPsych;
 import cutscenes.DialogueCharacter;
 import states.editors.content.Prompt;
+import flixel.graphics.frames.FlxAtlasFrames;
 #if MODS_ALLOWED
 import sys.FileSystem;
 import sys.io.File;
@@ -73,14 +74,14 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		bgFade.alpha = 0.7;
 		add(bgFade);
 
-		// 2. Ritratti Pixel (Caricati da assets/week6/images/weeb/)
+		// 2. Ritratti Pixel
 		characterLeft = new FlxSprite(60, 160);
-		try {
-			characterLeft.frames = getWeek6Sparrow('weeb/pixelUI/dialogueBox-senpaiMad');
+		var senpaiFrames:FlxAtlasFrames = loadWeek6Atlas('weeb/pixelUI/dialogueBox-senpaiMad');
+		if (senpaiFrames != null)
+		{
+			characterLeft.frames = senpaiFrames;
 			characterLeft.animation.addByPrefix('enter', 'SENPAI ANGRY IMPACT SPEECH', 24, false);
 			characterLeft.animation.play('enter');
-		} catch (e:Dynamic) {
-			trace('Avviso caricamento Senpai: ' + e);
 		}
 		characterLeft.scale.set(5.4, 5.4);
 		characterLeft.updateHitbox();
@@ -88,12 +89,12 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		add(characterLeft);
 
 		characterRight = new FlxSprite(740, 170);
-		try {
-			characterRight.frames = getWeek6Sparrow('weeb/bfPortrait');
+		var bfFrames:FlxAtlasFrames = loadWeek6Atlas('weeb/bfPortrait');
+		if (bfFrames != null)
+		{
+			characterRight.frames = bfFrames;
 			characterRight.animation.addByPrefix('enter', 'Boyfriend portrait enter', 24, false);
 			characterRight.animation.play('enter');
-		} catch (e:Dynamic) {
-			trace('Avviso caricamento BF: ' + e);
 		}
 		characterRight.scale.set(5.4, 5.4);
 		characterRight.updateHitbox();
@@ -105,30 +106,30 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		reloadBoxGraphic('pixel-roses');
 		add(box);
 
-		// 4. Manina cursore (da assets/week6/images/weeb/pixelUI/hand_textbox)
+		// 4. Manina cursore
 		handSelect = new FlxSprite(1042, 590);
-		try {
-			handSelect.loadGraphic(getWeek6Image('weeb/pixelUI/hand_textbox'));
-		} catch (e:Dynamic) {
-			trace('Avviso caricamento hand_textbox: ' + e);
+		var handGraphic = loadWeek6Graphic('weeb/pixelUI/hand_textbox');
+		if (handGraphic != null)
+		{
+			handSelect.loadGraphic(handGraphic);
 		}
 		handSelect.scale.set(5.4, 5.4);
 		handSelect.updateHitbox();
 		handSelect.antialiasing = false;
 		add(handSelect);
 
-		// 5. Testi Pixel con DropShadow e scansione font
-		var chosenFont:String = getPixelFont();
+		// 5. Testi Pixel con DropShadow
+		var pixelFont:String = Paths.font("pixel.otf");
 
 		dropText = new FlxText(242, 502, Std.int(FlxG.width * 0.6), "", 32);
-		dropText.font = chosenFont;
+		dropText.font = pixelFont;
 		dropText.color = 0xFFD89494;
 		dropText.borderSize = 0;
 		dropText.antialiasing = false;
 		add(dropText);
 
 		swagDialogue = new FlxText(240, 500, Std.int(FlxG.width * 0.6), "", 32);
-		swagDialogue.font = chosenFont;
+		swagDialogue.font = pixelFont;
 		swagDialogue.color = 0xFF3F2021;
 		swagDialogue.borderSize = 0;
 		swagDialogue.antialiasing = false;
@@ -146,39 +147,25 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		super.create();
 	}
 
-	// Caricatore per file XML SparrowAtlas nella cartella assets/week6/images/
-	function getWeek6Sparrow(key:String):flixel.graphics.frames.FlxAtlasFrames
+	// Caricatore compatibile con assets/week6/images/
+	function loadWeek6Atlas(key:String):FlxAtlasFrames
 	{
-		var atlas = Paths.getSparrowAtlas(key, 'week6');
-		if (atlas != null && atlas.frames != null && atlas.frames.length > 0)
-			return atlas;
-		atlas = Paths.getSparrowAtlas(key, 'shared');
-		if (atlas != null && atlas.frames != null && atlas.frames.length > 0)
-			return atlas;
-		return Paths.getSparrowAtlas(key);
+		var atlas = Paths.getSparrowAtlas(key);
+		if (atlas == null || atlas.frames == null || atlas.frames.length == 0)
+			atlas = Paths.getSparrowAtlas('week6/' + key);
+		if (atlas == null || atlas.frames == null || atlas.frames.length == 0)
+			atlas = Paths.getSparrowAtlas('../week6/images/' + key);
+		return atlas;
 	}
 
-	// Caricatore per immagini PNG nella cartella assets/week6/images/
-	function getWeek6Image(key:String):flixel.system.FlxAssets.FlxGraphicAsset
+	function loadWeek6Graphic(key:String)
 	{
-		var img = Paths.image(key, 'week6');
-		if (img != null) return img;
-		img = Paths.image(key, 'shared');
-		if (img != null) return img;
-		return Paths.image(key);
-	}
-
-	function getPixelFont():String
-	{
-		var fontName:String = "pixel.otf";
-		#if MODS_ALLOWED
-		var modFont:String = Paths.modsFont(fontName);
-		if (FileSystem.exists(modFont)) return modFont;
-		#end
-		if (FileSystem.exists('assets/week6/fonts/' + fontName)) return 'assets/week6/fonts/' + fontName;
-		if (FileSystem.exists('assets/fonts/' + fontName)) return 'assets/fonts/' + fontName;
-		if (FileSystem.exists('assets/shared/fonts/' + fontName)) return 'assets/shared/fonts/' + fontName;
-		return Paths.font("pixel.otf");
+		var graphic = Paths.image(key);
+		if (graphic == null)
+			graphic = Paths.image('week6/' + key);
+		if (graphic == null)
+			graphic = Paths.image('../week6/images/' + key);
+		return graphic;
 	}
 
 	function addEditorUI()
@@ -238,13 +225,13 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		else if (boxType == 'pixel-thorns')
 			boxAsset = 'weeb/pixelUI/dialogueBox-evil';
 
-		try {
-			box.frames = getWeek6Sparrow(boxAsset);
+		var atlas = loadWeek6Atlas(boxAsset);
+		if (atlas != null)
+		{
+			box.frames = atlas;
 			box.animation.addByPrefix('normalOpen', 'Text Box Appear', 24, false);
 			box.animation.addByIndices('normal', 'Text Box Appear instance 1', [4], "", 24);
 			box.animation.play('normal');
-		} catch (e:Dynamic) {
-			trace('Avviso caricamento box: ' + e);
 		}
 		box.scale.set(5.4, 5.4);
 		box.updateHitbox();
@@ -270,9 +257,9 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		characterLeft.visible = !isBf;
 		characterRight.visible = isBf;
 
-		// Riproduce il suono da assets/shared/sounds/
+		// Riproduce il suono senza argomenti errati
 		try {
-			FlxG.sound.play(Paths.sound('clickText', 'shared'), 0.5);
+			FlxG.sound.play(Paths.sound('clickText'), 0.5);
 		} catch (e:Dynamic) {}
 
 		selectedText.text = 'Riga: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Premi A/D o LEFT/RIGHT per scorrere';
