@@ -10,11 +10,11 @@ on:
       build_linux:
         description: "Build Linux x64"
         type: boolean
-        default: true
+        default: false
       build_android:
         description: "Build Android"
         type: boolean
-        default: true
+        default: false
       build_windows:
         description: "Build Windows x64"
         type: boolean
@@ -22,19 +22,19 @@ on:
       build_macos_arm64:
         description: "Build macOS ARM64"
         type: boolean
-        default: true
+        default: false
       build_macos_intel:
         description: "Build macOS Intel"
         type: boolean
-        default: true
+        default: false
       build_ios:
         description: "Build iOS"
         type: boolean
-        default: true
+        default: false
       publish_all:
         description: "Publish to all platforms (dev build)"
         type: boolean
-        default: true
+        default: false
       dev_build:
         description: "Show GitHub commit build info in-game"
         type: boolean
