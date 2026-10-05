@@ -7,10 +7,8 @@ import states.FreeplayState;
 
 class MasterEditorMenu extends MusicBeatState
 {
-	// ← CAMBIO: Usar índices en lugar de strings traducidos
 	var options:Array<String> = [];
 
-	// ← NUEVO: Array con las claves de traducción
 	var optionKeys:Array<String> = [
 		'chart_editor',
 		'character_editor',
@@ -19,8 +17,8 @@ class MasterEditorMenu extends MusicBeatState
 		'menu_character_editor',
 		'dialogue_editor',
 		'dialogue_portrait_editor',
-		'note_splash_editor' // ,
-		// 'modchart_converter'
+		'dialogue_pixel_editor', // <-- NUOVA VOCE PER I DIALOGHI WEEK 6! (Indice 7)
+		'note_splash_editor' // (Indice 8)
 	];
 	private var grpTexts:FlxTypedGroup<Alphabet>;
 	private var directories:Array<String> = [null];
@@ -34,11 +32,9 @@ class MasterEditorMenu extends MusicBeatState
 	{
 		FlxG.camera.bgColor = FlxColor.BLACK;
 		#if DISCORD_ALLOWED
-		// Updating Discord Rich Presence
 		DiscordClient.changePresence("Editors Main Menu", null);
 		#end
 
-		// ← NUEVO: Construir array de opciones traducidas
 		buildOptions();
 
 		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
@@ -94,7 +90,6 @@ class MasterEditorMenu extends MusicBeatState
 		super.create();
 	}
 
-	// ← NUEVO: Función para construir opciones traducidas
 	function buildOptions():Void
 	{
 		options = [
@@ -105,8 +100,8 @@ class MasterEditorMenu extends MusicBeatState
 			Language.getPhrase('menu_character_editor', 'Menu Character Editor'),
 			Language.getPhrase('dialogue_editor', 'Dialogue Editor'),
 			Language.getPhrase('dialogue_portrait_editor', 'Dialogue Portrait Editor'),
-			Language.getPhrase('note_splash_editor', 'Note Splash Editor') // ,
-				// Language.getPhrase('modchart_converter', 'Modchart Converter')
+			Language.getPhrase('dialogue_pixel_editor', 'Dialogue Pixel Editor'), // <-- TESTO NEL MENU
+			Language.getPhrase('note_splash_editor', 'Note Splash Editor')
 		];
 	}
 
@@ -139,7 +134,6 @@ class MasterEditorMenu extends MusicBeatState
 
 		if (controls.ACCEPT || (touchPad != null && touchPad.buttonA.justPressed))
 		{
-			// ← SOLUCION: Usar índice en lugar de string traducido
 			if (!canSelect(curSelected))
 			{
 				FlxG.sound.play(Paths.sound('cancelMenu'), 0.4);
@@ -162,9 +156,11 @@ class MasterEditorMenu extends MusicBeatState
 					LoadingState.loadAndSwitchState(new DialogueEditorState(), false);
 				case 6: // Dialogue Portrait Editor
 					LoadingState.loadAndSwitchState(new DialogueCharacterEditorState(), false);
-				case 7: // Note Splash Editor
+				case 7: // Dialogue Pixel Editor (AVVIO NUOVO EDITOR!)
+					LoadingState.loadAndSwitchState(new DialoguePixelEditorState(), false);
+				case 8: // Note Splash Editor
 					MusicBeatState.switchState(new NoteSplashEditorState());
-				case 8: // Modchart Converter
+				case 9: // Modchart Converter
 					MusicBeatState.switchState(new ModchartConverterState());
 			}
 			FlxG.sound.music.volume = 0;
@@ -178,14 +174,14 @@ class MasterEditorMenu extends MusicBeatState
 			if (item.targetY == 0)
 				item.alpha = canSelect(num) ? 1 : 0.35;
 
-			if (num == 7 && !canSelect(num))
+			if (num == 8 && !canSelect(num))
 			{
 				disabledTxt.visible = true;
 				disabledTxt.x = item.x;
 				disabledTxt.y = item.y + item.height + 8;
 			}
 		}
-		if (canSelect(7))
+		if (canSelect(8))
 			disabledTxt.visible = false;
 	}
 
@@ -207,7 +203,7 @@ class MasterEditorMenu extends MusicBeatState
 	}
 
 	function canSelect(index:Int):Bool
-		return index != 7 || ClientPrefs.data.noteRGB;
+		return index != 8 || ClientPrefs.data.noteRGB;
 
 	#if MODS_ALLOWED
 	function changeDirectory(change:Int = 0)
@@ -233,4 +229,3 @@ class MasterEditorMenu extends MusicBeatState
 	}
 	#end
 }
-
