@@ -4,10 +4,25 @@ import haxe.Json;
 import openfl.utils.Assets;
 import objects.TypedAlphabet;
 import cutscenes.DialogueCharacter;
+import flixel.FlxG;
+import flixel.FlxSprite;
+import flixel.group.FlxSpriteGroup;
+import flixel.text.FlxText;
+import flixel.util.FlxColor;
+import flixel.tweens.FlxTween;
+#if MODS_ALLOWED
+import sys.FileSystem;
+import sys.io.File;
+#end
+
+using StringTools;
 
 typedef DialogueFile =
 {
 	var dialogue:Array<DialogueLine>;
+	@:optional var isPixel:Null<Bool>;
+	@:optional var boxType:Null<String>;
+	@:optional var bgFadeColor:Null<String>;
 }
 
 typedef DialogueLine =
@@ -20,7 +35,6 @@ typedef DialogueLine =
 	@:optional var sound:Null<String>;
 }
 
-// TO DO: Clean code? Maybe? idk
 class DialogueBoxPsych extends FlxSpriteGroup
 {
 	public static var DEFAULT_TEXT_X = 175;
@@ -50,15 +64,22 @@ class DialogueBoxPsych extends FlxSpriteGroup
 
 	var curCharacter:String = "";
 
-	// var charPositionList:Array<String> = ['left', 'center', 'right'];
+	// Variabili di supporto per la modalità Pixel (Week 6)
+	public var isPixel:Bool = false;
+	public var dropText:FlxText = null;
+	public var pixelDialogueText:FlxText = null;
+	public var handSelect:FlxSprite = null;
 
 	public function new(dialogueList:DialogueFile, ?song:String = null)
 	{
 		super();
 
-		// precache sounds
+		// Precaricamento suoni
 		Paths.sound('dialogue');
 		Paths.sound('dialogueClose');
+		Paths.sound('pixelText');
+		Paths.sound('clickText');
+		Paths.sound('ANGRY_TEXT_BOX');
 
 		if (song != null && song != '')
 		{
@@ -66,7 +87,23 @@ class DialogueBoxPsych extends FlxSpriteGroup
 			FlxG.sound.music.fadeIn(2, 0, 1);
 		}
 
-		bgFade = new FlxSprite(-500, -500).makeGraphic(FlxG.width * 2, FlxG.height * 2, FlxColor.WHITE);
+		// Rileva se il dialogo è in modalità Pixel
+		if (dialogueList.isPixel == true || (dialogueList.boxType != null && dialogueList.boxType.startsWith('pixel')))
+		{
+			isPixel = true;
+		}
+
+		// Colore overlay sfondo (bgFade)
+		var fadeColor:FlxColor = FlxColor.WHITE;
+		if (isPixel)
+		{
+			if (dialogueList.bgFadeColor != null && dialogueList.bgFadeColor.length > 0)
+				fadeColor = FlxColor.fromString(dialogueList.bgFadeColor);
+			else
+				fadeColor = 0xFFB3DFD8;
+		}
+
+		bgFade = new FlxSprite(-500, -500).makeGraphic(FlxG.width * 2, FlxG.height * 2, fadeColor);
 		bgFade.scrollFactor.set();
 		bgFade.visible = true;
 		bgFade.alpha = 0;
@@ -75,27 +112,77 @@ class DialogueBoxPsych extends FlxSpriteGroup
 		this.dialogueList = dialogueList;
 		spawnCharacters();
 
-		box = new FlxSprite(70, 370);
-		box.antialiasing = ClientPrefs.data.antialiasing;
-		box.frames = Paths.getSparrowAtlas('speech_bubble');
-		box.scrollFactor.set();
-		box.animation.addByPrefix('normal', 'speech bubble normal', 24);
-		box.animation.addByPrefix('normalOpen', 'Speech Bubble Normal Open', 24, false);
-		box.animation.addByPrefix('angry', 'AHH speech bubble', 24);
-		box.animation.addByPrefix('angryOpen', 'speech bubble loud open', 24, false);
-		box.animation.addByPrefix('center-normal', 'speech bubble middle', 24);
-		box.animation.addByPrefix('center-normalOpen', 'Speech Bubble Middle Open', 24, false);
-		box.animation.addByPrefix('center-angry', 'AHH Speech Bubble middle', 24);
-		box.animation.addByPrefix('center-angryOpen', 'speech bubble Middle loud open', 24, false);
-		box.animation.play('normal', true);
-		box.visible = false;
-		box.setGraphicSize(Std.int(box.width * 0.9));
-		box.updateHitbox();
-		add(box);
+		if (isPixel)
+		{
+			// Caricamento Textbox Week 6 con scaling 5.4 e antialiasing disattivato
+			var boxImage:String = 'weeb/pixelUI/dialogueBox-pixel';
+			if (dialogueList.boxType == 'pixel-roses')
+				boxImage = 'weeb/pixelUI/dialogueBox-senpaiMad';
+			else if (dialogueList.boxType == 'pixel-thorns')
+				boxImage = 'weeb/pixelUI/dialogueBox-evil';
 
-		daText = new TypedAlphabet(DEFAULT_TEXT_X, DEFAULT_TEXT_Y, '');
-		daText.setScale(0.7);
-		add(daText);
+			box = new FlxSprite(-20, 45);
+			box.frames = Paths.getSparrowAtlas(boxImage);
+			box.scrollFactor.set();
+			box.animation.addByPrefix('normal', 'Text Box Appear instance 1', 24);
+			box.animation.addByPrefix('normalOpen', 'Text Box Appear', 24, false);
+			box.animation.play('normalOpen', true);
+			box.scale.set(5.4, 5.4);
+			box.updateHitbox();
+			box.screenCenter(X);
+			box.antialiasing = false;
+			add(box);
+
+			// Manina pixel che indica la fine del testo
+			handSelect = new FlxSprite(1042, 590);
+			if (Paths.fileExists('images/weeb/pixelUI/hand_textbox.png', IMAGE))
+				handSelect.loadGraphic(Paths.image('weeb/pixelUI/hand_textbox'));
+			handSelect.scale.set(5.4, 5.4);
+			handSelect.updateHitbox();
+			handSelect.antialiasing = false;
+			handSelect.visible = false;
+			add(handSelect);
+
+			// Testo Pixel sdoppiato con ombra (dropText) e testo principale (pixelDialogueText)
+			dropText = new FlxText(242, 502, Std.int(FlxG.width * 0.6), "", 32);
+			dropText.font = Paths.font("pixel.otf");
+			dropText.color = (dialogueList.boxType == 'pixel-thorns') ? 0xFF000000 : 0xFFD89494;
+			dropText.borderSize = 0;
+			dropText.antialiasing = false;
+			add(dropText);
+
+			pixelDialogueText = new FlxText(240, 500, Std.int(FlxG.width * 0.6), "", 32);
+			pixelDialogueText.font = Paths.font("pixel.otf");
+			pixelDialogueText.color = (dialogueList.boxType == 'pixel-thorns') ? 0xFFFFFFFF : 0xFF3F2021;
+			pixelDialogueText.borderSize = 0;
+			pixelDialogueText.antialiasing = false;
+			add(pixelDialogueText);
+		}
+		else
+		{
+			// Textbox HD Speech Bubble standard per dialoghi normali
+			box = new FlxSprite(70, 370);
+			box.antialiasing = ClientPrefs.data.antialiasing;
+			box.frames = Paths.getSparrowAtlas('speech_bubble');
+			box.scrollFactor.set();
+			box.animation.addByPrefix('normal', 'speech bubble normal', 24);
+			box.animation.addByPrefix('normalOpen', 'Speech Bubble Normal Open', 24, false);
+			box.animation.addByPrefix('angry', 'AHH speech bubble', 24);
+			box.animation.addByPrefix('angryOpen', 'speech bubble loud open', 24, false);
+			box.animation.addByPrefix('center-normal', 'speech bubble middle', 24);
+			box.animation.addByPrefix('center-normalOpen', 'Speech Bubble Middle Open', 24, false);
+			box.animation.addByPrefix('center-angry', 'AHH Speech Bubble middle', 24);
+			box.animation.addByPrefix('center-angryOpen', 'speech bubble Middle loud open', 24, false);
+			box.animation.play('normal', true);
+			box.visible = false;
+			box.setGraphicSize(Std.int(box.width * 0.9));
+			box.updateHitbox();
+			add(box);
+
+			daText = new TypedAlphabet(DEFAULT_TEXT_X, DEFAULT_TEXT_Y, '');
+			daText.setScale(0.7);
+			add(daText);
+		}
 
 		skipText = new FlxText(FlxG.width - 320, FlxG.height - 30, 300, Language.getPhrase('dialogue_skip', 'Press BACK to Skip'), 16);
 		skipText.setFormat(null, 16, FlxColor.WHITE, RIGHT, OUTLINE_FAST, FlxColor.BLACK);
@@ -132,7 +219,17 @@ class DialogueBoxPsych extends FlxSpriteGroup
 			var x:Float = LEFT_CHAR_X;
 			var y:Float = DEFAULT_CHAR_Y;
 			var char:DialogueCharacter = new DialogueCharacter(x + offsetPos, y, individualChar);
-			char.setGraphicSize(Std.int(char.width * DialogueCharacter.DEFAULT_SCALE * char.jsonFile.scale));
+
+			// Se il dialogo è pixel o il personaggio è Week 6, disattiva antialiasing e scala 5.4x
+			if (isPixel || individualChar.indexOf('pixel') != -1 || individualChar.indexOf('weeb') != -1)
+			{
+				char.antialiasing = false;
+				char.scale.set(5.4, 5.4);
+			}
+			else
+			{
+				char.setGraphicSize(Std.int(char.width * DialogueCharacter.DEFAULT_SCALE * char.jsonFile.scale));
+			}
 			char.updateHitbox();
 			char.scrollFactor.set();
 			char.alpha = 0.00001;
@@ -161,10 +258,17 @@ class DialogueBoxPsych extends FlxSpriteGroup
 	}
 
 	var daText:TypedAlphabet = null;
-	var ignoreThisFrame:Bool = true; // First frame is reserved for loading dialogue images
+	var ignoreThisFrame:Bool = true;
 
 	public var closeSound:String = 'dialogueClose';
 	public var closeVolume:Float = 1;
+
+	// Gestione Typewriter Pixel
+	var pixelTypeTimer:Float = 0;
+	var pixelCharIndex:Int = 0;
+	var targetPixelText:String = "";
+	var pixelSpeed:Float = 0.04;
+	var isPixelTyping:Bool = false;
 
 	override function update(elapsed:Float)
 	{
@@ -175,18 +279,55 @@ class DialogueBoxPsych extends FlxSpriteGroup
 			return;
 		}
 
+		// Effetto macchina da scrivere (typewriter) per font pixel
+		if (isPixel && isPixelTyping)
+		{
+			pixelTypeTimer += elapsed;
+			if (pixelTypeTimer >= pixelSpeed)
+			{
+				pixelTypeTimer = 0;
+				pixelCharIndex++;
+				if (pixelCharIndex <= targetPixelText.length)
+				{
+					pixelDialogueText.text = targetPixelText.substr(0, pixelCharIndex);
+					dropText.text = pixelDialogueText.text;
+					if (pixelCharIndex % 2 == 1)
+						FlxG.sound.play(Paths.sound('pixelText'), 0.6);
+				}
+				else
+				{
+					isPixelTyping = false;
+					if (handSelect != null)
+						handSelect.visible = true;
+				}
+			}
+		}
+
 		if (!dialogueEnded)
 		{
 			bgFade.alpha += 0.5 * elapsed;
-			if (bgFade.alpha > 0.5)
-				bgFade.alpha = 0.5;
+			if (bgFade.alpha > 0.7)
+				bgFade.alpha = 0.7;
 
 			var back:Bool = #if android FlxG.android.justReleased.BACK || #end Controls.instance.BACK;
 			if ((TouchUtil.justPressed || Controls.instance.ACCEPT) || back)
 			{
-				if (!daText.finishedText && !back)
+				var isFinished:Bool = isPixel ? !isPixelTyping : daText.finishedText;
+				if (!isFinished && !back)
 				{
-					daText.finishText();
+					// Se sta ancora scrivendo, completa subito la frase
+					if (isPixel)
+					{
+						isPixelTyping = false;
+						pixelDialogueText.text = targetPixelText;
+						dropText.text = targetPixelText;
+						if (handSelect != null)
+							handSelect.visible = true;
+					}
+					else
+					{
+						daText.finishText();
+					}
 					if (skipDialogueThing != null)
 					{
 						skipDialogueThing();
@@ -194,72 +335,50 @@ class DialogueBoxPsych extends FlxSpriteGroup
 				}
 				else if (back || currentText >= dialogueList.dialogue.length)
 				{
+					// Fine del dialogo
 					dialogueEnded = true;
-					for (i in 0...textBoxTypes.length)
+					if (isPixel)
 					{
-						var checkArray:Array<String> = ['', 'center-'];
-						var animName:String = box.animation.curAnim.name;
-						for (j in 0...checkArray.length)
+						FlxTween.tween(box, {alpha: 0}, 0.5);
+						FlxTween.tween(bgFade, {alpha: 0}, 0.5);
+						if (pixelDialogueText != null) pixelDialogueText.visible = false;
+						if (dropText != null) dropText.visible = false;
+						if (handSelect != null) handSelect.visible = false;
+					}
+					else
+					{
+						for (i in 0...textBoxTypes.length)
 						{
-							if (animName == checkArray[j] + textBoxTypes[i] || animName == checkArray[j] + textBoxTypes[i] + 'Open')
+							var checkArray:Array<String> = ['', 'center-'];
+							var animName:String = box.animation.curAnim.name;
+							for (j in 0...checkArray.length)
 							{
-								box.animation.play(checkArray[j] + textBoxTypes[i] + 'Open', true);
+								if (animName == checkArray[j] + textBoxTypes[i] || animName == checkArray[j] + textBoxTypes[i] + 'Open')
+								{
+									box.animation.play(checkArray[j] + textBoxTypes[i] + 'Open', true);
+								}
 							}
 						}
-					}
-
-					box.animation.curAnim.curFrame = box.animation.curAnim.frames.length - 1;
-					box.animation.curAnim.reverse();
-					if (daText != null)
-					{
-						daText.kill();
-						remove(daText);
-						daText.destroy();
+						box.animation.curAnim.curFrame = box.animation.curAnim.frames.length - 1;
+						box.animation.curAnim.reverse();
+						if (daText != null)
+						{
+							daText.kill();
+							remove(daText);
+							daText.destroy();
+						}
 					}
 					skipText.visible = false;
-					updateBoxOffsets(box);
 					FlxG.sound.music.fadeOut(1, 0, (_) -> FlxG.sound.music.stop());
 				}
 				else
 				{
 					startNextDialog();
 				}
-				FlxG.sound.play(Paths.sound(closeSound), closeVolume);
-			}
-			else if (daText.finishedText)
-			{
-				var char:DialogueCharacter = arrayCharacters[lastCharacter];
-				if (char != null && char.animation.curAnim != null && char.animationIsLoop() && char.animation.finished)
-				{
-					char.playAnim(char.animation.curAnim.name, true);
-				}
-			}
-			else
-			{
-				var char:DialogueCharacter = arrayCharacters[lastCharacter];
-				if (char != null && char.animation.curAnim != null && char.animation.finished)
-				{
-					char.animation.curAnim.restart();
-				}
+				FlxG.sound.play(Paths.sound(isPixel ? 'clickText' : closeSound), closeVolume);
 			}
 
-			if (box.animation.curAnim.finished)
-			{
-				for (i in 0...textBoxTypes.length)
-				{
-					var checkArray:Array<String> = ['', 'center-'];
-					var animName:String = box.animation.curAnim.name;
-					for (j in 0...checkArray.length)
-					{
-						if (animName == checkArray[j] + textBoxTypes[i] || animName == checkArray[j] + textBoxTypes[i] + 'Open')
-						{
-							box.animation.play(checkArray[j] + textBoxTypes[i], true);
-						}
-					}
-				}
-				updateBoxOffsets(box);
-			}
-
+			// Posizionamento ritratti e dissolvenza
 			if (lastCharacter != -1 && arrayCharacters.length > 0)
 			{
 				for (i in 0...arrayCharacters.length)
@@ -269,60 +388,21 @@ class DialogueBoxPsych extends FlxSpriteGroup
 					{
 						if (i != lastCharacter)
 						{
-							switch (char.jsonFile.dialogue_pos)
-							{
-								case 'left':
-									char.x -= scrollSpeed * elapsed;
-									if (char.x < char.startingPos + offsetPos)
-										char.x = char.startingPos + offsetPos;
-								case 'center':
-									char.y += scrollSpeed * elapsed;
-									if (char.y > char.startingPos + FlxG.height)
-										char.y = char.startingPos + FlxG.height;
-								case 'right':
-									char.x += scrollSpeed * elapsed;
-									if (char.x > char.startingPos - offsetPos)
-										char.x = char.startingPos - offsetPos;
-							}
 							char.alpha -= 3 * elapsed;
-							if (char.alpha < 0.00001)
-								char.alpha = 0.00001;
+							if (char.alpha < 0.00001) char.alpha = 0.00001;
 						}
 						else
 						{
-							switch (char.jsonFile.dialogue_pos)
-							{
-								case 'left':
-									char.x += scrollSpeed * elapsed;
-									if (char.x > char.startingPos)
-										char.x = char.startingPos;
-								case 'center':
-									char.y -= scrollSpeed * elapsed;
-									if (char.y < char.startingPos)
-										char.y = char.startingPos;
-								case 'right':
-									char.x -= scrollSpeed * elapsed;
-									if (char.x < char.startingPos)
-										char.x = char.startingPos;
-							}
 							char.alpha += 3 * elapsed;
-							if (char.alpha > 1)
-								char.alpha = 1;
+							if (char.alpha > 1) char.alpha = 1;
 						}
 					}
 				}
 			}
 		}
 		else
-		{ // Dialogue ending
-			if (box != null && box.animation.curAnim.curFrame <= 0)
-			{
-				box.kill();
-				remove(box);
-				box.destroy();
-				box = null;
-			}
-
+		{
+			// Chiusura finale
 			if (bgFade != null)
 			{
 				bgFade.alpha -= 0.5 * elapsed;
@@ -335,37 +415,8 @@ class DialogueBoxPsych extends FlxSpriteGroup
 				}
 			}
 
-			for (i in 0...arrayCharacters.length)
+			if (bgFade == null)
 			{
-				var leChar:DialogueCharacter = arrayCharacters[i];
-				if (leChar != null)
-				{
-					switch (arrayCharacters[i].jsonFile.dialogue_pos)
-					{
-						case 'left':
-							leChar.x -= scrollSpeed * elapsed;
-						case 'center':
-							leChar.y += scrollSpeed * elapsed;
-						case 'right':
-							leChar.x += scrollSpeed * elapsed;
-					}
-					leChar.alpha -= elapsed * 10;
-				}
-			}
-
-			if (box == null && bgFade == null)
-			{
-				for (i in 0...arrayCharacters.length)
-				{
-					var leChar:DialogueCharacter = arrayCharacters[0];
-					if (leChar != null)
-					{
-						arrayCharacters.remove(leChar);
-						leChar.kill();
-						remove(leChar);
-						leChar.destroy();
-					}
-				}
 				finishThing();
 				kill();
 			}
@@ -390,17 +441,7 @@ class DialogueBoxPsych extends FlxSpriteGroup
 		if (curDialogue.boxState == null)
 			curDialogue.boxState = 'normal';
 		if (curDialogue.speed == null || Math.isNaN(curDialogue.speed))
-			curDialogue.speed = 0.05;
-
-		var animName:String = curDialogue.boxState;
-		var boxType:String = textBoxTypes[0];
-		for (i in 0...textBoxTypes.length)
-		{
-			if (textBoxTypes[i] == animName)
-			{
-				boxType = animName;
-			}
-		}
+			curDialogue.speed = 0.04;
 
 		var character:Int = 0;
 		box.visible = true;
@@ -412,48 +453,33 @@ class DialogueBoxPsych extends FlxSpriteGroup
 				break;
 			}
 		}
-		var centerPrefix:String = '';
-		var lePosition:String = arrayCharacters[character].jsonFile.dialogue_pos;
-		if (lePosition == 'center')
-			centerPrefix = 'center-';
 
-		if (character != lastCharacter)
-		{
-			box.animation.play(centerPrefix + boxType + 'Open', true);
-			updateBoxOffsets(box);
-			box.flipX = (lePosition == 'left');
-		}
-		else if (boxType != lastBoxType)
-		{
-			box.animation.play(centerPrefix + boxType, true);
-			updateBoxOffsets(box);
-		}
 		lastCharacter = character;
-		lastBoxType = boxType;
 
-		daText.text = curDialogue.text;
-		daText.delay = curDialogue.speed;
-		daText.sound = curDialogue.sound;
-		if (daText.sound == null || daText.sound.trim() == '')
-			daText.sound = 'dialogue';
-
-		daText.y = DEFAULT_TEXT_Y;
-		if (daText.rows > 2)
-			daText.y -= LONG_TEXT_ADD;
+		if (isPixel)
+		{
+			targetPixelText = curDialogue.text;
+			pixelCharIndex = 0;
+			pixelTypeTimer = 0;
+			pixelSpeed = curDialogue.speed;
+			isPixelTyping = true;
+			if (handSelect != null) handSelect.visible = false;
+			pixelDialogueText.text = "";
+			dropText.text = "";
+		}
+		else
+		{
+			daText.text = curDialogue.text;
+			daText.delay = curDialogue.speed;
+			daText.sound = curDialogue.sound;
+			if (daText.sound == null || daText.sound.trim() == '')
+				daText.sound = 'dialogue';
+		}
 
 		var char:DialogueCharacter = arrayCharacters[character];
 		if (char != null)
 		{
-			char.playAnim(curDialogue.expression, daText.finishedText);
-			if (char.animation.curAnim != null)
-			{
-				var rate:Float = 24 - (((curDialogue.speed - 0.05) / 5) * 480);
-				if (rate < 12)
-					rate = 12;
-				else if (rate > 48)
-					rate = 48;
-				char.animation.curAnim.frameRate = rate;
-			}
+			char.playAnim(curDialogue.expression, false);
 		}
 		currentText++;
 
@@ -483,12 +509,13 @@ class DialogueBoxPsych extends FlxSpriteGroup
 					speed: 0.05,
 					portrait: "bf"
 				}
-			]
+			],
+			isPixel: false
 		};
 	}
 
 	public static function updateBoxOffsets(box:FlxSprite)
-	{ // Had to make it static because of the editors
+	{
 		box.centerOffsets();
 		box.updateHitbox();
 		if (box.animation.curAnim.name.startsWith('angry'))
@@ -508,4 +535,3 @@ class DialogueBoxPsych extends FlxSpriteGroup
 			box.offset.y += 10;
 	}
 }
-
