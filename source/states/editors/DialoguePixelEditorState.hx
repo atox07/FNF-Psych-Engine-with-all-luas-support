@@ -73,13 +73,14 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		bgFade.alpha = 0.7;
 		add(bgFade);
 
-		// 2. Ritratti Pixel
+		// 2. Ritratti Pixel (Caricati da assets/week6/images/weeb/)
 		characterLeft = new FlxSprite(60, 160);
-		if (Paths.fileExists('images/weeb/pixelUI/dialogueBox-senpaiMad.png', IMAGE))
-		{
-			characterLeft.frames = Paths.getSparrowAtlas('weeb/pixelUI/dialogueBox-senpaiMad');
+		try {
+			characterLeft.frames = getWeek6Sparrow('weeb/pixelUI/dialogueBox-senpaiMad');
 			characterLeft.animation.addByPrefix('enter', 'SENPAI ANGRY IMPACT SPEECH', 24, false);
 			characterLeft.animation.play('enter');
+		} catch (e:Dynamic) {
+			trace('Avviso caricamento Senpai: ' + e);
 		}
 		characterLeft.scale.set(5.4, 5.4);
 		characterLeft.updateHitbox();
@@ -87,43 +88,47 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		add(characterLeft);
 
 		characterRight = new FlxSprite(740, 170);
-		if (Paths.fileExists('images/weeb/bfPortrait.png', IMAGE))
-		{
-			characterRight.frames = Paths.getSparrowAtlas('weeb/bfPortrait');
+		try {
+			characterRight.frames = getWeek6Sparrow('weeb/bfPortrait');
 			characterRight.animation.addByPrefix('enter', 'Boyfriend portrait enter', 24, false);
 			characterRight.animation.play('enter');
+		} catch (e:Dynamic) {
+			trace('Avviso caricamento BF: ' + e);
 		}
 		characterRight.scale.set(5.4, 5.4);
 		characterRight.updateHitbox();
 		characterRight.antialiasing = false;
 		add(characterRight);
 
-		// 3. Textbox Pixel autentica
-		box = new FlxSprite(-20, 45);
+		// 3. Textbox Pixel autentica (Posizionata in basso a Y = 370)
+		box = new FlxSprite(-20, 370);
 		reloadBoxGraphic('pixel-roses');
 		add(box);
 
-		// 4. Manina cursore
+		// 4. Manina cursore (da assets/week6/images/weeb/pixelUI/hand_textbox)
 		handSelect = new FlxSprite(1042, 590);
-		if (Paths.fileExists('images/weeb/pixelUI/hand_textbox.png', IMAGE))
-		{
-			handSelect.loadGraphic(Paths.image('weeb/pixelUI/hand_textbox'));
+		try {
+			handSelect.loadGraphic(getWeek6Image('weeb/pixelUI/hand_textbox'));
+		} catch (e:Dynamic) {
+			trace('Avviso caricamento hand_textbox: ' + e);
 		}
 		handSelect.scale.set(5.4, 5.4);
 		handSelect.updateHitbox();
 		handSelect.antialiasing = false;
 		add(handSelect);
 
-		// 5. Testi Pixel (dropText ombra e swagDialogue)
+		// 5. Testi Pixel con DropShadow e scansione font
+		var chosenFont:String = getPixelFont();
+
 		dropText = new FlxText(242, 502, Std.int(FlxG.width * 0.6), "", 32);
-		dropText.font = Paths.font("pixel.otf");
+		dropText.font = chosenFont;
 		dropText.color = 0xFFD89494;
 		dropText.borderSize = 0;
 		dropText.antialiasing = false;
 		add(dropText);
 
 		swagDialogue = new FlxText(240, 500, Std.int(FlxG.width * 0.6), "", 32);
-		swagDialogue.font = Paths.font("pixel.otf");
+		swagDialogue.font = chosenFont;
 		swagDialogue.color = 0xFF3F2021;
 		swagDialogue.borderSize = 0;
 		swagDialogue.antialiasing = false;
@@ -139,6 +144,41 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 
 		FlxG.mouse.visible = true;
 		super.create();
+	}
+
+	// Caricatore per file XML SparrowAtlas nella cartella assets/week6/images/
+	function getWeek6Sparrow(key:String):flixel.graphics.frames.FlxAtlasFrames
+	{
+		var atlas = Paths.getSparrowAtlas(key, 'week6');
+		if (atlas != null && atlas.frames != null && atlas.frames.length > 0)
+			return atlas;
+		atlas = Paths.getSparrowAtlas(key, 'shared');
+		if (atlas != null && atlas.frames != null && atlas.frames.length > 0)
+			return atlas;
+		return Paths.getSparrowAtlas(key);
+	}
+
+	// Caricatore per immagini PNG nella cartella assets/week6/images/
+	function getWeek6Image(key:String):flixel.system.FlxAssets.FlxGraphicAsset
+	{
+		var img = Paths.image(key, 'week6');
+		if (img != null) return img;
+		img = Paths.image(key, 'shared');
+		if (img != null) return img;
+		return Paths.image(key);
+	}
+
+	function getPixelFont():String
+	{
+		var fontName:String = "pixel.otf";
+		#if MODS_ALLOWED
+		var modFont:String = Paths.modsFont(fontName);
+		if (FileSystem.exists(modFont)) return modFont;
+		#end
+		if (FileSystem.exists('assets/week6/fonts/' + fontName)) return 'assets/week6/fonts/' + fontName;
+		if (FileSystem.exists('assets/fonts/' + fontName)) return 'assets/fonts/' + fontName;
+		if (FileSystem.exists('assets/shared/fonts/' + fontName)) return 'assets/shared/fonts/' + fontName;
+		return Paths.font("pixel.otf");
 	}
 
 	function addEditorUI()
@@ -198,16 +238,18 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		else if (boxType == 'pixel-thorns')
 			boxAsset = 'weeb/pixelUI/dialogueBox-evil';
 
-		if (Paths.fileExists('images/' + boxAsset + '.png', IMAGE))
-		{
-			box.frames = Paths.getSparrowAtlas(boxAsset);
+		try {
+			box.frames = getWeek6Sparrow(boxAsset);
 			box.animation.addByPrefix('normalOpen', 'Text Box Appear', 24, false);
 			box.animation.addByIndices('normal', 'Text Box Appear instance 1', [4], "", 24);
 			box.animation.play('normal');
+		} catch (e:Dynamic) {
+			trace('Avviso caricamento box: ' + e);
 		}
 		box.scale.set(5.4, 5.4);
 		box.updateHitbox();
 		box.screenCenter(X);
+		box.y = 370; // Allineata in basso con il testo
 		box.antialiasing = false;
 	}
 
@@ -227,6 +269,11 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		var isBf:Bool = (curLine.portrait.indexOf('bf') != -1);
 		characterLeft.visible = !isBf;
 		characterRight.visible = isBf;
+
+		// Riproduce il suono da assets/shared/sounds/
+		try {
+			FlxG.sound.play(Paths.sound('clickText', 'shared'), 0.5);
+		} catch (e:Dynamic) {}
 
 		selectedText.text = 'Riga: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Premi A/D o LEFT/RIGHT per scorrere';
 	}
