@@ -5,356 +5,650 @@ import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import flash.net.FileFilter;
 import haxe.Json;
-import objects.TypedAlphabet;
-import cutscenes.DialogueBoxPsych;
-import cutscenes.DialogueCharacter;
+import cutscenes.DialogueBoxPixel;
 import states.editors.content.Prompt;
-import flixel.graphics.frames.FlxAtlasFrames;
-#if MODS_ALLOWED
-import sys.FileSystem;
-import sys.io.File;
-#end
 
-using StringTools;
-
+/**
+ * Editor dei dialoghi pixel (Week 6).
+ * - L'anteprima è la VERA DialogueBoxPixel (stessa classe del gioco), quindi quello che vedi è quello che ottieni.
+ * - I personaggi vengono dai .json nella cartella "characters/" (fuori da images).
+ * - Il ritratto di ogni personaggio è images/characters/portrait_<nome>.png + .xml
+ * - Salva un file da mettere in data/<canzone>/dialogue-pixel.json
+ *
+ * Tasti: A/D riga precedente/successiva, W/S espressione, O elimina riga, P aggiungi riga, SPACE rivedi la riga, ESC esci.
+ */
 class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHandler.PsychUIEvent
 {
-	var characterLeft:FlxSprite;
-	var characterRight:FlxSprite;
-	var box:FlxSprite;
-	var handSelect:FlxSprite;
-	var bgFade:FlxSprite;
-
-	var swagDialogue:FlxText;
-	var dropText:FlxText;
+	var dialogueFile:PixelDialogueFile = null;
+	var previewBox:DialogueBoxPixel = null;
 
 	var selectedText:FlxText;
-	var dialogueFile:DialogueFile = null;
+	var infoText:FlxText;
+
 	var curSelected:Int = 0;
 	var unsavedProgress:Bool = false;
+	var transitioning:Bool = false;
+
+	var characters:Array<String> = [];
+	var boxes:Array<String> = [];
 
 	var UI_box:PsychUIBox;
-	var characterInputText:PsychUIInputText;
-	var lineInputText:PsychUIInputText;
+
+	// tab "Riga"
+	var characterInput:PsychUIInputText;
+	var expressionInput:PsychUIInputText;
+	var rightCheckbox:PsychUICheckBox;
 	var speedStepper:PsychUINumericStepper;
-	var soundInputText:PsychUIInputText;
+	var soundInput:PsychUIInputText;
+	var lineInput:PsychUIInputText;
+
+	// tab "File"
+	var boxInput:PsychUIInputText;
+	var handInput:PsychUIInputText;
+	var bgColorInput:PsychUIInputText;
+	var textColorInput:PsychUIInputText;
+	var shadowColorInput:PsychUIInputText;
 
 	override function create()
 	{
 		persistentUpdate = persistentDraw = true;
-		FlxG.camera.bgColor = 0xFF151528;
+		FlxG.camera.bgColor = FlxColor.fromHSL(0, 0, 0.5);
+
+		characters = DialogueBoxPixel.listCharacters();
+		boxes = DialogueBoxPixel.listBoxes();
 
 		dialogueFile = {
-			dialogue: [
-				{
-					portrait: 'senpai-mad',
-					expression: 'enter',
-					text: "Not bad for an ugly worm.",
-					boxState: 'pixel-roses',
-					speed: 0.04,
-					sound: 'pixelText'
-				},
-				{
-					portrait: 'bf-pixel',
-					expression: 'enter',
-					text: "Bop beep be be skdoo bep!",
-					boxState: 'pixel-roses',
-					speed: 0.04,
-					sound: 'pixelText'
-				}
-			],
-			isPixel: true,
-			boxType: 'pixel-roses',
-			bgFadeColor: '#B3DFD8'
+			dialogue: [newLine()],
+			box: boxes[0],
+			hand: DialogueBoxPixel.DEFAULT_HAND,
+			bgFadeColor: '#B3DFD8',
+			textColor: '',
+			shadowColor: ''
 		};
 
-		// 1. Sfondo Pastello bgFade Week 6
-		bgFade = new FlxSprite(-200, -200).makeGraphic(Std.int(FlxG.width * 1.5), Std.int(FlxG.height * 1.5), 0xFFB3DFD8);
-		bgFade.scrollFactor.set();
-		bgFade.alpha = 0.7;
-		add(bgFade);
+		rebuildPreview();
 
-		// 2. Ritratti Pixel
-		characterLeft = new FlxSprite(60, 160);
-		var senpaiFrames:FlxAtlasFrames = loadWeek6Atlas('weeb/pixelUI/dialogueBox-senpaiMad');
-		if (senpaiFrames != null)
-		{
-			characterLeft.frames = senpaiFrames;
-			characterLeft.animation.addByPrefix('enter', 'SENPAI ANGRY IMPACT SPEECH', 24, false);
-			characterLeft.animation.play('enter');
-		}
-		characterLeft.scale.set(5.4, 5.4);
-		characterLeft.updateHitbox();
-		characterLeft.antialiasing = false;
-		add(characterLeft);
-
-		characterRight = new FlxSprite(740, 170);
-		var bfFrames:FlxAtlasFrames = loadWeek6Atlas('weeb/bfPortrait');
-		if (bfFrames != null)
-		{
-			characterRight.frames = bfFrames;
-			characterRight.animation.addByPrefix('enter', 'Boyfriend portrait enter', 24, false);
-			characterRight.animation.play('enter');
-		}
-		characterRight.scale.set(5.4, 5.4);
-		characterRight.updateHitbox();
-		characterRight.antialiasing = false;
-		add(characterRight);
-
-		// 3. Textbox Pixel autentica (Posizionata in basso a Y = 370)
-		box = new FlxSprite(-20, 370);
-		reloadBoxGraphic('pixel-roses');
-		add(box);
-
-		// 4. Manina cursore
-		handSelect = new FlxSprite(1042, 590);
-		var handGraphic = loadWeek6Graphic('weeb/pixelUI/hand_textbox');
-		if (handGraphic != null)
-		{
-			handSelect.loadGraphic(handGraphic);
-		}
-		handSelect.scale.set(5.4, 5.4);
-		handSelect.updateHitbox();
-		handSelect.antialiasing = false;
-		add(handSelect);
-
-		// 5. Testi Pixel con DropShadow
-		var pixelFont:String = Paths.font("pixel.otf");
-
-		dropText = new FlxText(242, 502, Std.int(FlxG.width * 0.6), "", 32);
-		dropText.font = pixelFont;
-		dropText.color = 0xFFD89494;
-		dropText.borderSize = 0;
-		dropText.antialiasing = false;
-		add(dropText);
-
-		swagDialogue = new FlxText(240, 500, Std.int(FlxG.width * 0.6), "", 32);
-		swagDialogue.font = pixelFont;
-		swagDialogue.color = 0xFF3F2021;
-		swagDialogue.borderSize = 0;
-		swagDialogue.antialiasing = false;
-		add(swagDialogue);
-
-		selectedText = new FlxText(10, 10, FlxG.width - 20, '', 16);
+		selectedText = new FlxText(10, 10, FlxG.width - 380, '', 8);
 		selectedText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		selectedText.borderSize = 2;
+		selectedText.scrollFactor.set();
 		add(selectedText);
 
-		addEditorUI();
-		changeLine(0);
+		infoText = new FlxText(10, 66, FlxG.width - 380, '', 8);
+		infoText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		infoText.scrollFactor.set();
+		add(infoText);
 
+		addEditorBox();
 		FlxG.mouse.visible = true;
+
+		changeLine(0);
 		super.create();
 	}
 
-	// Caricatore compatibile con assets/week6/images/
-	function loadWeek6Atlas(key:String):FlxAtlasFrames
+	// ------------------------------------------------------------------
+	// Anteprima
+	// ------------------------------------------------------------------
+	function rebuildPreview():Void
 	{
-		var atlas = Paths.getSparrowAtlas(key);
-		if (atlas == null || atlas.frames == null || atlas.frames.length == 0)
-			atlas = Paths.getSparrowAtlas('week6/' + key);
-		if (atlas == null || atlas.frames == null || atlas.frames.length == 0)
-			atlas = Paths.getSparrowAtlas('../week6/images/' + key);
-		return atlas;
+		if (previewBox != null)
+		{
+			remove(previewBox, true);
+			previewBox.destroy();
+		}
+		previewBox = new DialogueBoxPixel(dialogueFile, true);
+		insert(0, previewBox); // sempre dietro all'interfaccia
+		previewBox.setPreviewLine(curSelected, true);
 	}
 
-	function loadWeek6Graphic(key:String)
+	function refreshLine(instant:Bool, markUnsaved:Bool):Void
 	{
-		var graphic = Paths.image(key);
-		if (graphic == null)
-			graphic = Paths.image('week6/' + key);
-		if (graphic == null)
-			graphic = Paths.image('../week6/images/' + key);
-		return graphic;
+		if (markUnsaved)
+			unsavedProgress = true;
+		if (previewBox != null)
+			previewBox.setPreviewLine(curSelected, instant);
+		updateInfo();
 	}
 
-	function addEditorUI()
+	function updateInfo():Void
 	{
-		UI_box = new PsychUIBox(FlxG.width - 290, 10, 280, 260, ['Pixel Dialogue']);
+		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+
+		selectedText.text = 'Riga ('
+			+ (curSelected + 1)
+			+ ' / '
+			+ dialogueFile.dialogue.length
+			+ ') - A/D = riga, W/S = espressione, SPACE = rivedi, O/P = elimina/aggiungi';
+
+		if (line.portrait == null || line.portrait.length < 1)
+		{
+			infoText.text = 'Nessun ritratto (campo personaggio vuoto)';
+			return;
+		}
+
+		var frames = DialogueBoxPixel.loadPortraitFrames(line.portrait);
+		if (frames == null)
+		{
+			infoText.text = 'Ritratto NON trovato: images/characters/portrait_' + line.portrait + '.png + .xml';
+			return;
+		}
+		infoText.text = 'Espressioni: ' + DialogueBoxPixel.getExpressions(frames).join(', ');
+	}
+
+	// ------------------------------------------------------------------
+	// Dati
+	// ------------------------------------------------------------------
+	function pickDefaultCharacter():String
+	{
+		for (c in characters)
+		{
+			if (DialogueBoxPixel.loadPortraitFrames(c) != null)
+				return c;
+		}
+		return (characters.length > 0) ? characters[0] : '';
+	}
+
+	function firstExpression(character:String):String
+	{
+		var list:Array<String> = DialogueBoxPixel.getExpressions(DialogueBoxPixel.loadPortraitFrames(character));
+		return (list.length > 0) ? list[0] : '';
+	}
+
+	function newLine():PixelDialogueLine
+	{
+		var c:String = pickDefaultCharacter();
+		return {
+			portrait: c,
+			expression: firstExpression(c),
+			side: 'left',
+			text: 'coolswag',
+			speed: 0.04,
+			sound: DialogueBoxPixel.DEFAULT_SOUND
+		};
+	}
+
+	function copyLine(src:PixelDialogueLine):PixelDialogueLine
+	{
+		return {
+			portrait: src.portrait,
+			expression: src.expression,
+			side: src.side,
+			text: src.text,
+			speed: src.speed,
+			sound: src.sound
+		};
+	}
+
+	/** Se l'espressione della riga non esiste nel ritratto, passa alla prima disponibile. */
+	function fixExpression(line:PixelDialogueLine):Void
+	{
+		var list:Array<String> = DialogueBoxPixel.getExpressions(DialogueBoxPixel.loadPortraitFrames(line.portrait));
+		if (list.length < 1)
+			line.expression = '';
+		else if (list.indexOf(line.expression) < 0)
+			line.expression = list[0];
+		expressionInput.text = line.expression;
+	}
+
+	function cycleCharacter(dir:Int):Void
+	{
+		if (characters.length < 1)
+			return;
+		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+		var idx:Int = characters.indexOf(line.portrait);
+		if (idx < 0)
+			idx = (dir > 0) ? -1 : 0;
+		idx = FlxMath.wrap(idx + dir, 0, characters.length - 1);
+
+		line.portrait = characters[idx];
+		characterInput.text = line.portrait;
+		fixExpression(line);
+		refreshLine(true, true);
+	}
+
+	function cycleExpression(dir:Int):Void
+	{
+		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+		var list:Array<String> = DialogueBoxPixel.getExpressions(DialogueBoxPixel.loadPortraitFrames(line.portrait));
+		if (list.length < 1)
+			return;
+		var idx:Int = list.indexOf(line.expression);
+		if (idx < 0)
+			idx = (dir > 0) ? -1 : 0;
+		idx = FlxMath.wrap(idx + dir, 0, list.length - 1);
+
+		line.expression = list[idx];
+		expressionInput.text = line.expression;
+		refreshLine(false, true);
+	}
+
+	function cycleBox(dir:Int):Void
+	{
+		if (boxes.length < 1)
+			return;
+		var idx:Int = boxes.indexOf(dialogueFile.box);
+		if (idx < 0)
+			idx = (dir > 0) ? -1 : 0;
+		idx = FlxMath.wrap(idx + dir, 0, boxes.length - 1);
+
+		dialogueFile.box = boxes[idx];
+		boxInput.text = dialogueFile.box;
+		unsavedProgress = true;
+		rebuildPreview();
+	}
+
+	// ------------------------------------------------------------------
+	// Interfaccia
+	// ------------------------------------------------------------------
+	function addEditorBox():Void
+	{
+		UI_box = new PsychUIBox(FlxG.width - 350, 10, 340, 290, ['Riga', 'File']);
 		UI_box.scrollFactor.set();
+		addLineTab();
+		addFileTab();
+		add(UI_box);
+	}
 
-		var tab = UI_box.getTab('Pixel Dialogue').menu;
+	function addLineTab():Void
+	{
+		var tab = UI_box.getTab('Riga').menu;
 
-		characterInputText = new PsychUIInputText(10, 25, 120, 'senpai-mad', 8);
-		speedStepper = new PsychUINumericStepper(140, 25, 0.005, 0.04, 0.01, 0.5, 3);
+		characterInput = new PsychUIInputText(10, 22, 120, '', 8);
+		var prevChar:PsychUIButton = new PsychUIButton(140, 20, '< Prec.', function() cycleCharacter(-1));
+		var nextChar:PsychUIButton = new PsychUIButton(225, 20, 'Succ. >', function() cycleCharacter(1));
 
-		lineInputText = new PsychUIInputText(10, 75, 250, '', 8);
-		lineInputText.onPressEnter = function(e)
+		expressionInput = new PsychUIInputText(10, 68, 120, '', 8);
+		var prevExpr:PsychUIButton = new PsychUIButton(140, 66, '< Prec.', function() cycleExpression(-1));
+		var nextExpr:PsychUIButton = new PsychUIButton(225, 66, 'Succ. >', function() cycleExpression(1));
+
+		rightCheckbox = new PsychUICheckBox(10, 98, 'Ritratto a destra', 200);
+		rightCheckbox.onClick = function()
+		{
+			var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+			var newSide:String = rightCheckbox.checked ? 'right' : 'left';
+			if (line.side != newSide)
+			{
+				line.side = newSide;
+				refreshLine(true, true);
+			}
+		};
+
+		speedStepper = new PsychUINumericStepper(10, 144, 0.005, 0.04, 0.001, 0.5, 3);
+		soundInput = new PsychUIInputText(150, 144, 170, DialogueBoxPixel.DEFAULT_SOUND, 8);
+
+		lineInput = new PsychUIInputText(10, 190, 310, '', 8);
+		lineInput.onPressEnter = function(e)
 		{
 			if (e.shiftKey)
 			{
-				lineInputText.text += '\n';
-				lineInputText.caretIndex++;
+				lineInput.text += '\n';
+				lineInput.caretIndex++;
 			}
 			else
 				PsychUIInputText.focusOn = null;
 		};
 
-		soundInputText = new PsychUIInputText(10, 125, 120, 'pixelText', 8);
-
-		var saveButton = new PsychUIButton(10, 175, "Salva JSON", function() {
+		#if !mobile
+		var loadButton:PsychUIButton = new PsychUIButton(10, 228, 'Carica', function()
+		{
+			loadDialogue();
+		});
+		#end
+		var saveButton:PsychUIButton = new PsychUIButton(#if mobile 10 #else 130 #end, 228, 'Salva', function()
+		{
 			saveDialogue();
 		});
 
-		var loadButton = new PsychUIButton(100, 175, "Carica JSON", function() {
-			loadDialogue();
-		});
-
-		tab.add(new FlxText(10, 8, 0, 'Personaggio:'));
-		tab.add(new FlxText(140, 8, 0, 'Velocità:'));
-		tab.add(characterInputText);
+		tab.add(new FlxText(10, 6, 0, 'Personaggio (cartella characters):'));
+		tab.add(new FlxText(10, 52, 0, 'Espressione (dal ritratto):'));
+		tab.add(new FlxText(10, 128, 0, 'Velocita (s/lettera):'));
+		tab.add(new FlxText(150, 128, 0, 'Suono (dal gioco):'));
+		tab.add(new FlxText(10, 174, 0, 'Testo (Shift+Invio = a capo):'));
+		tab.add(characterInput);
+		tab.add(prevChar);
+		tab.add(nextChar);
+		tab.add(expressionInput);
+		tab.add(prevExpr);
+		tab.add(nextExpr);
+		tab.add(rightCheckbox);
 		tab.add(speedStepper);
-
-		tab.add(new FlxText(10, 58, 0, 'Testo del Dialogo:'));
-		tab.add(lineInputText);
-
-		tab.add(new FlxText(10, 108, 0, 'Suono Typewriter:'));
-		tab.add(soundInputText);
-
+		tab.add(soundInput);
+		tab.add(lineInput);
+		#if !mobile tab.add(loadButton); #end
 		tab.add(saveButton);
-		tab.add(loadButton);
-
-		add(UI_box);
 	}
 
-	function reloadBoxGraphic(boxType:String)
+	function addFileTab():Void
 	{
-		var boxAsset:String = 'weeb/pixelUI/dialogueBox-pixel';
-		if (boxType == 'pixel-roses')
-			boxAsset = 'weeb/pixelUI/dialogueBox-senpaiMad';
-		else if (boxType == 'pixel-thorns')
-			boxAsset = 'weeb/pixelUI/dialogueBox-evil';
+		var tab = UI_box.getTab('File').menu;
 
-		var atlas = loadWeek6Atlas(boxAsset);
-		if (atlas != null)
-		{
-			box.frames = atlas;
-			box.animation.addByPrefix('normalOpen', 'Text Box Appear', 24, false);
-			box.animation.addByIndices('normal', 'Text Box Appear instance 1', [4], "", 24);
-			box.animation.play('normal');
-		}
-		box.scale.set(5.4, 5.4);
-		box.updateHitbox();
-		box.screenCenter(X);
-		box.y = 370; // Allineata in basso con il testo
-		box.antialiasing = false;
+		boxInput = new PsychUIInputText(10, 22, 120, '', 8);
+		var prevBox:PsychUIButton = new PsychUIButton(140, 20, '< Prec.', function() cycleBox(-1));
+		var nextBox:PsychUIButton = new PsychUIButton(225, 20, 'Succ. >', function() cycleBox(1));
+
+		handInput = new PsychUIInputText(10, 68, 150, '', 8);
+		bgColorInput = new PsychUIInputText(10, 114, 120, '', 8);
+		textColorInput = new PsychUIInputText(10, 160, 120, '', 8);
+		shadowColorInput = new PsychUIInputText(150, 160, 120, '', 8);
+
+		tab.add(new FlxText(10, 6, 0, 'Scatola (dialogBoxes, isPixel):'));
+		tab.add(new FlxText(10, 52, 0, 'Manina (dialogHands, senza .png):'));
+		tab.add(new FlxText(10, 98, 0, 'Colore sfondo (#RRGGBB):'));
+		tab.add(new FlxText(10, 144, 0, 'Colore testo (vuoto = auto):'));
+		tab.add(new FlxText(150, 144, 0, 'Colore ombra (vuoto = auto):'));
+		tab.add(boxInput);
+		tab.add(prevBox);
+		tab.add(nextBox);
+		tab.add(handInput);
+		tab.add(bgColorInput);
+		tab.add(textColorInput);
+		tab.add(shadowColorInput);
 	}
 
-	function changeLine(change:Int = 0)
+	/** Copia nei campi dell'interfaccia i dati della riga corrente. */
+	function changeLine(add:Int = 0):Void
 	{
-		curSelected = FlxMath.wrap(curSelected + change, 0, dialogueFile.dialogue.length - 1);
-		var curLine = dialogueFile.dialogue[curSelected];
+		curSelected = FlxMath.wrap(curSelected + add, 0, dialogueFile.dialogue.length - 1);
+		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
 
-		characterInputText.text = curLine.portrait;
-		lineInputText.text = curLine.text;
-		speedStepper.value = curLine.speed != null ? curLine.speed : 0.04;
-		soundInputText.text = curLine.sound != null ? curLine.sound : 'pixelText';
+		characterInput.text = (line.portrait != null) ? line.portrait : '';
+		expressionInput.text = (line.expression != null) ? line.expression : '';
+		rightCheckbox.checked = (line.side == 'right');
+		speedStepper.value = (line.speed != null) ? line.speed : 0.04;
+		soundInput.text = (line.sound != null) ? line.sound : DialogueBoxPixel.DEFAULT_SOUND;
+		lineInput.text = (line.text != null) ? line.text : '';
 
-		swagDialogue.text = curLine.text;
-		dropText.text = curLine.text;
+		boxInput.text = (dialogueFile.box != null) ? dialogueFile.box : '';
+		handInput.text = (dialogueFile.hand != null) ? dialogueFile.hand : '';
+		bgColorInput.text = (dialogueFile.bgFadeColor != null) ? dialogueFile.bgFadeColor : '';
+		textColorInput.text = (dialogueFile.textColor != null) ? dialogueFile.textColor : '';
+		shadowColorInput.text = (dialogueFile.shadowColor != null) ? dialogueFile.shadowColor : '';
 
-		var isBf:Bool = (curLine.portrait.indexOf('bf') != -1);
-		characterLeft.visible = !isBf;
-		characterRight.visible = isBf;
-
-		// Riproduce il suono senza argomenti errati
-		try {
-			FlxG.sound.play(Paths.sound('clickText'), 0.5);
-		} catch (e:Dynamic) {}
-
-		selectedText.text = 'Riga: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Premi A/D o LEFT/RIGHT per scorrere';
+		refreshLine(false, false);
 	}
 
+	// I controlli confrontano sempre con i dati salvati: se un evento arriva due volte non succede nulla di strano.
 	public function UIEvent(id:String, sender:Dynamic)
 	{
-		if (id == PsychUIInputText.CHANGE_EVENT && sender == lineInputText)
+		if (dialogueFile == null || curSelected >= dialogueFile.dialogue.length)
+			return;
+		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+
+		if (id == PsychUIInputText.CHANGE_EVENT && (sender is PsychUIInputText))
 		{
-			dialogueFile.dialogue[curSelected].text = lineInputText.text;
-			swagDialogue.text = lineInputText.text;
-			dropText.text = lineInputText.text;
-			unsavedProgress = true;
-		}
-		else if (id == PsychUIInputText.CHANGE_EVENT && sender == characterInputText)
-		{
-			dialogueFile.dialogue[curSelected].portrait = characterInputText.text;
-			var isBf:Bool = (characterInputText.text.indexOf('bf') != -1);
-			characterLeft.visible = !isBf;
-			characterRight.visible = isBf;
-			unsavedProgress = true;
+			if (sender == characterInput)
+			{
+				if (line.portrait != characterInput.text)
+				{
+					line.portrait = characterInput.text;
+					fixExpression(line);
+					refreshLine(true, true);
+				}
+			}
+			else if (sender == expressionInput)
+			{
+				if (line.expression != expressionInput.text)
+				{
+					line.expression = expressionInput.text;
+					refreshLine(false, true);
+				}
+			}
+			else if (sender == soundInput)
+			{
+				if (line.sound != soundInput.text)
+				{
+					line.sound = soundInput.text;
+					unsavedProgress = true;
+				}
+			}
+			else if (sender == lineInput)
+			{
+				if (line.text != lineInput.text)
+				{
+					line.text = lineInput.text;
+					refreshLine(true, true);
+				}
+			}
+			else if (sender == boxInput)
+			{
+				if (dialogueFile.box != boxInput.text)
+				{
+					dialogueFile.box = boxInput.text;
+					unsavedProgress = true;
+					rebuildPreview();
+				}
+			}
+			else if (sender == handInput)
+			{
+				if (dialogueFile.hand != handInput.text)
+				{
+					dialogueFile.hand = handInput.text;
+					unsavedProgress = true;
+					rebuildPreview();
+				}
+			}
+			else if (sender == bgColorInput)
+			{
+				if (dialogueFile.bgFadeColor != bgColorInput.text)
+				{
+					dialogueFile.bgFadeColor = bgColorInput.text;
+					unsavedProgress = true;
+					rebuildPreview();
+				}
+			}
+			else if (sender == textColorInput)
+			{
+				if (dialogueFile.textColor != textColorInput.text)
+				{
+					dialogueFile.textColor = textColorInput.text;
+					unsavedProgress = true;
+					rebuildPreview();
+				}
+			}
+			else if (sender == shadowColorInput)
+			{
+				if (dialogueFile.shadowColor != shadowColorInput.text)
+				{
+					dialogueFile.shadowColor = shadowColorInput.text;
+					unsavedProgress = true;
+					rebuildPreview();
+				}
+			}
 		}
 		else if (id == PsychUINumericStepper.CHANGE_EVENT && sender == speedStepper)
 		{
-			dialogueFile.dialogue[curSelected].speed = speedStepper.value;
-			unsavedProgress = true;
-		}
-		else if (id == PsychUIInputText.CHANGE_EVENT && sender == soundInputText)
-		{
-			dialogueFile.dialogue[curSelected].sound = soundInputText.text;
-			unsavedProgress = true;
+			if (line.speed == null || Math.abs(line.speed - speedStepper.value) > 0.0001)
+			{
+				line.speed = speedStepper.value;
+				refreshLine(false, true);
+			}
 		}
 	}
 
+	// ------------------------------------------------------------------
+	// Aggiornamento e tasti
+	// ------------------------------------------------------------------
 	override function update(elapsed:Float)
 	{
+		if (transitioning)
+		{
+			super.update(elapsed);
+			return;
+		}
+
 		if (PsychUIInputText.focusOn == null)
 		{
+			ClientPrefs.toggleVolumeKeys(true);
+
+			if (FlxG.keys.justPressed.SPACE)
+				refreshLine(false, false);
+
 			if (FlxG.keys.justPressed.ESCAPE)
 			{
-				MusicBeatState.switchState(new states.editors.MasterEditorMenu());
+				if (!unsavedProgress)
+				{
+					MusicBeatState.switchState(new states.editors.MasterEditorMenu());
+					FlxG.sound.playMusic(Paths.music('freakyMenu'));
+					transitioning = true;
+				}
+				else
+					openSubState(new ExitConfirmationPrompt(function() transitioning = true));
 				return;
 			}
-			if (FlxG.keys.justPressed.D || FlxG.keys.justPressed.RIGHT)
-			{
+
+			if (FlxG.keys.justPressed.D)
 				changeLine(1);
-			}
-			else if (FlxG.keys.justPressed.A || FlxG.keys.justPressed.LEFT)
-			{
+			if (FlxG.keys.justPressed.A)
 				changeLine(-1);
+			if (FlxG.keys.justPressed.W)
+				cycleExpression(-1);
+			if (FlxG.keys.justPressed.S)
+				cycleExpression(1);
+
+			if (FlxG.keys.justPressed.O)
+			{
+				dialogueFile.dialogue.remove(dialogueFile.dialogue[curSelected]);
+				if (dialogueFile.dialogue.length < 1) // non lasciare il file vuoto
+					dialogueFile.dialogue = [newLine()];
+				unsavedProgress = true;
+				changeLine(0);
 			}
 			else if (FlxG.keys.justPressed.P)
 			{
-				dialogueFile.dialogue.insert(curSelected + 1, {
-					portrait: 'bf-pixel',
-					expression: 'enter',
-					text: 'Nuova battuta...',
-					boxState: 'pixel-roses',
-					speed: 0.04,
-					sound: 'pixelText'
-				});
+				dialogueFile.dialogue.insert(curSelected + 1, copyLine(dialogueFile.dialogue[curSelected]));
+				unsavedProgress = true;
 				changeLine(1);
 			}
-			else if (FlxG.keys.justPressed.O && dialogueFile.dialogue.length > 1)
-			{
-				dialogueFile.dialogue.remove(dialogueFile.dialogue[curSelected]);
-				changeLine(-1);
-			}
 		}
+		else
+			ClientPrefs.toggleVolumeKeys(false);
+
 		super.update(elapsed);
 	}
 
-	var _file:FileReference;
-	function saveDialogue()
-	{
-		var data = Json.stringify(dialogueFile, "\t");
-		_file = new FileReference();
-		_file.save(data, "dialogue.json");
-	}
+	// ------------------------------------------------------------------
+	// Caricamento e salvataggio (stesso meccanismo dell'editor dialoghi HD)
+	// ------------------------------------------------------------------
+	var _file:FileReference = null;
 
-	function loadDialogue()
+	function loadDialogue():Void
 	{
 		var jsonFilter:FileFilter = new FileFilter('JSON', 'json');
 		_file = new FileReference();
-		_file.addEventListener(Event.SELECT, function(_) {
-			#if sys
-			@:privateAccess
-			if (_file.__path != null)
+		_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.addEventListener(Event.CANCEL, onLoadCancel);
+		_file.addEventListener(IOErrorEvent.IO_ERROR, onLoadError);
+		_file.browse([#if !mac jsonFilter #end]);
+	}
+
+	function onLoadComplete(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(Event.CANCEL, onLoadCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
+
+		#if sys
+		var fullPath:String = null;
+		@:privateAccess
+		if (_file.__path != null)
+			fullPath = _file.__path;
+
+		if (fullPath != null)
+		{
+			var rawJson:String = File.getContent(fullPath);
+			if (rawJson != null)
 			{
-				var content = File.getContent(_file.__path);
-				dialogueFile = Json.parse(content);
-				changeLine(0);
+				if (rawJson.charCodeAt(0) == 0xFEFF)
+					rawJson = rawJson.substr(1);
+
+				var loaded:PixelDialogueFile = null;
+				try
+				{
+					loaded = DialogueBoxPixel.normalize(cast Json.parse(rawJson));
+				}
+				catch (e:Dynamic)
+				{
+					trace('File non valido: ' + e);
+				}
+
+				if (loaded != null)
+				{
+					trace("Caricato: " + _file.name);
+					dialogueFile = loaded;
+					curSelected = 0;
+					unsavedProgress = false;
+					rebuildPreview();
+					changeLine(0);
+					_file = null;
+					return;
+				}
 			}
+		}
+		_file = null;
+		#else
+		trace("File couldn't be loaded! You aren't on Desktop, are you?");
+		#end
+	}
+
+	function onLoadCancel(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(Event.CANCEL, onLoadCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
+		_file = null;
+		trace("Cancelled file loading.");
+	}
+
+	function onLoadError(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(Event.CANCEL, onLoadCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
+		_file = null;
+		trace("Problem loading file");
+	}
+
+	function saveDialogue():Void
+	{
+		var data:String = haxe.Json.stringify(dialogueFile, "\t");
+		if (data.length > 0)
+		{
+			#if mobile
+			unsavedProgress = false;
+			StorageUtil.saveContent("dialogue-pixel.json", data);
+			#else
+			_file = new FileReference();
+			_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
+			_file.addEventListener(Event.CANCEL, onSaveCancel);
+			_file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
+			_file.save(data, "dialogue-pixel.json");
 			#end
-		});
-		_file.browse([jsonFilter]);
+		}
+	}
+
+	function onSaveComplete(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
+		_file.removeEventListener(Event.CANCEL, onSaveCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onSaveError);
+		_file = null;
+		unsavedProgress = false;
+		FlxG.log.notice("Successfully saved file.");
+	}
+
+	function onSaveCancel(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
+		_file.removeEventListener(Event.CANCEL, onSaveCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onSaveError);
+		_file = null;
+	}
+
+	function onSaveError(_):Void
+	{
+		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
+		_file.removeEventListener(Event.CANCEL, onSaveCancel);
+		_file.removeEventListener(IOErrorEvent.IO_ERROR, onSaveError);
+		_file = null;
+		FlxG.log.error("Problem saving file");
 	}
 }
