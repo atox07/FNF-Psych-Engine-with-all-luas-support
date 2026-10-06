@@ -113,25 +113,25 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 	{
 		var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
 
-		selectedText.text = 'Riga ('
+		selectedText.text = 'Line ('
 			+ (curSelected + 1)
 			+ ' / '
 			+ dialogueFile.dialogue.length
-			+ ') - A/D = riga, W/S = espressione, SPACE = rivedi, O/P = elimina/aggiungi';
+			+ ') - A/D = line, W/S = expression, SPACE = replay, O/P = delete/add';
 
 		if (line.portrait == null || line.portrait.length < 1)
 		{
-			infoText.text = 'Nessun ritratto (campo personaggio vuoto)';
+			infoText.text = 'No portrait (character field is empty)';
 			return;
 		}
 
 		var frames = DialogueBoxPixel.loadPortraitFrames(line.portrait);
 		if (frames == null)
 		{
-			infoText.text = 'Ritratto NON trovato: images/characters/portrait_' + line.portrait + '.png + .xml';
+			infoText.text = 'Portrait NOT found: images/characters/portrait_' + line.portrait + '.png + .xml';
 			return;
 		}
-		infoText.text = 'Espressioni: ' + DialogueBoxPixel.getExpressions(frames).join(', ');
+		infoText.text = 'Expressions: ' + DialogueBoxPixel.getExpressions(frames).join(', ');
 	}
 
 	// ------------------------------------------------------------------
@@ -241,7 +241,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 	// ------------------------------------------------------------------
 	function addEditorBox():Void
 	{
-		UI_box = new PsychUIBox(FlxG.width - 350, 10, 340, 290, ['Riga', 'File']);
+		UI_box = new PsychUIBox(FlxG.width - 350, 10, 340, 290, ['Line', 'File']);
 		UI_box.scrollFactor.set();
 		addLineTab();
 		addFileTab();
@@ -250,17 +250,17 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 
 	function addLineTab():Void
 	{
-		var tab = UI_box.getTab('Riga').menu;
+		var tab = UI_box.getTab('Line').menu;
 
 		characterInput = new PsychUIInputText(10, 22, 120, '', 8);
-		var prevChar:PsychUIButton = new PsychUIButton(140, 20, '< Prec.', function() cycleCharacter(-1));
-		var nextChar:PsychUIButton = new PsychUIButton(225, 20, 'Succ. >', function() cycleCharacter(1));
+		var prevChar:PsychUIButton = new PsychUIButton(140, 20, '< Prev.', function() cycleCharacter(-1));
+		var nextChar:PsychUIButton = new PsychUIButton(225, 20, 'Next >', function() cycleCharacter(1));
 
 		expressionInput = new PsychUIInputText(10, 68, 120, '', 8);
-		var prevExpr:PsychUIButton = new PsychUIButton(140, 66, '< Prec.', function() cycleExpression(-1));
-		var nextExpr:PsychUIButton = new PsychUIButton(225, 66, 'Succ. >', function() cycleExpression(1));
+		var prevExpr:PsychUIButton = new PsychUIButton(140, 66, '< Prev.', function() cycleExpression(-1));
+		var nextExpr:PsychUIButton = new PsychUIButton(225, 66, 'Next >', function() cycleExpression(1));
 
-		rightCheckbox = new PsychUICheckBox(10, 98, 'Ritratto a destra', 200);
+		rightCheckbox = new PsychUICheckBox(10, 98, 'Portrait on the right', 200);
 		rightCheckbox.onClick = function()
 		{
 			var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
@@ -288,21 +288,21 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		};
 
 		#if !mobile
-		var loadButton:PsychUIButton = new PsychUIButton(10, 228, 'Carica', function()
+		var loadButton:PsychUIButton = new PsychUIButton(10, 228, 'Load', function()
 		{
 			loadDialogue();
 		});
 		#end
-		var saveButton:PsychUIButton = new PsychUIButton(#if mobile 10 #else 130 #end, 228, 'Salva', function()
+		var saveButton:PsychUIButton = new PsychUIButton(#if mobile 10 #else 130 #end, 228, 'Save', function()
 		{
 			saveDialogue();
 		});
 
-		tab.add(new FlxText(10, 6, 0, 'Personaggio (cartella characters):'));
-		tab.add(new FlxText(10, 52, 0, 'Espressione (dal ritratto):'));
-		tab.add(new FlxText(10, 128, 0, 'Velocita (s/lettera):'));
-		tab.add(new FlxText(150, 128, 0, 'Suono (dal gioco):'));
-		tab.add(new FlxText(10, 174, 0, 'Testo (Shift+Invio = a capo):'));
+		tab.add(new FlxText(10, 6, 0, 'Character (from characters folder):'));
+		tab.add(new FlxText(10, 52, 0, 'Expression (from portrait):'));
+		tab.add(new FlxText(10, 128, 0, 'Speed (sec/letter):'));
+		tab.add(new FlxText(150, 128, 0, 'Sound (from game):'));
+		tab.add(new FlxText(10, 174, 0, 'Text (Shift+Enter = new line):'));
 		tab.add(characterInput);
 		tab.add(prevChar);
 		tab.add(nextChar);
@@ -322,19 +322,19 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		var tab = UI_box.getTab('File').menu;
 
 		boxInput = new PsychUIInputText(10, 22, 120, '', 8);
-		var prevBox:PsychUIButton = new PsychUIButton(140, 20, '< Prec.', function() cycleBox(-1));
-		var nextBox:PsychUIButton = new PsychUIButton(225, 20, 'Succ. >', function() cycleBox(1));
+		var prevBox:PsychUIButton = new PsychUIButton(140, 20, '< Prev.', function() cycleBox(-1));
+		var nextBox:PsychUIButton = new PsychUIButton(225, 20, 'Next >', function() cycleBox(1));
 
 		handInput = new PsychUIInputText(10, 68, 150, '', 8);
 		bgColorInput = new PsychUIInputText(10, 114, 120, '', 8);
 		textColorInput = new PsychUIInputText(10, 160, 120, '', 8);
 		shadowColorInput = new PsychUIInputText(150, 160, 120, '', 8);
 
-		tab.add(new FlxText(10, 6, 0, 'Scatola (dialogBoxes, isPixel):'));
-		tab.add(new FlxText(10, 52, 0, 'Manina (dialogHands, senza .png):'));
-		tab.add(new FlxText(10, 98, 0, 'Colore sfondo (#RRGGBB):'));
-		tab.add(new FlxText(10, 144, 0, 'Colore testo (vuoto = auto):'));
-		tab.add(new FlxText(150, 144, 0, 'Colore ombra (vuoto = auto):'));
+		tab.add(new FlxText(10, 6, 0, 'Box (dialogBoxes, isPixel):'));
+		tab.add(new FlxText(10, 52, 0, 'Hand (dialogHands, no .png):'));
+		tab.add(new FlxText(10, 98, 0, 'Background color (#RRGGBB):'));
+		tab.add(new FlxText(10, 144, 0, 'Text color (empty = auto):'));
+		tab.add(new FlxText(150, 144, 0, 'Shadow color (empty = auto):'));
 		tab.add(boxInput);
 		tab.add(prevBox);
 		tab.add(nextBox);
@@ -567,12 +567,12 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 				}
 				catch (e:Dynamic)
 				{
-					trace('File non valido: ' + e);
+					trace('Invalid file: ' + e);
 				}
 
 				if (loaded != null)
 				{
-					trace("Caricato: " + _file.name);
+					trace("Loaded: " + _file.name);
 					dialogueFile = loaded;
 					curSelected = 0;
 					unsavedProgress = false;
