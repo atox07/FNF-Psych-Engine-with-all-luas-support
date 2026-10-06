@@ -4,6 +4,7 @@ import flixel.addons.effects.FlxTrail;
 import states.stages.objects.*;
 import substates.GameOverSubstate;
 import cutscenes.DialogueBox;
+import cutscenes.DialogueBoxPixel;
 import openfl.utils.Assets as OpenFlAssets;
 
 class SchoolEvil extends BaseStage
@@ -89,9 +90,23 @@ class SchoolEvil extends BaseStage
 	}
 
 	var doof:DialogueBox = null;
+	var pixelDoof:DialogueBoxPixel = null;
 
 	function initDoof()
 	{
+		// Nuovo sistema: data/<canzone>/dialogue-pixel.json (creato con il Dialogue Pixel Editor)
+		var pixelFile:PixelDialogueFile = DialogueBoxPixel.loadDialogueFile(songName);
+		if (pixelFile != null)
+		{
+			pixelDoof = new DialogueBoxPixel(pixelFile);
+			pixelDoof.cameras = [camHUD];
+			pixelDoof.scrollFactor.set();
+			pixelDoof.finishThing = startCountdown;
+			pixelDoof.nextDialogueThing = PlayState.instance.startNextDialogue;
+			pixelDoof.skipDialogueThing = PlayState.instance.skipDialogue;
+			return;
+		}
+
 		var file:String = Paths.txt('$songName/${songName}Dialogue_${ClientPrefs.data.language}'); // Checks for vanilla/Senpai dialogue
 		#if MODS_ALLOWED
 		if (!FileSystem.exists(file))
@@ -139,7 +154,7 @@ class SchoolEvil extends BaseStage
 
 		new FlxTimer().start(2.1, function(tmr:FlxTimer)
 		{
-			if (doof != null)
+			if (doof != null || pixelDoof != null)
 			{
 				add(senpaiEvil);
 				senpaiEvil.alpha = 0;
@@ -161,7 +176,10 @@ class SchoolEvil extends BaseStage
 							red.destroy();
 							FlxG.camera.fade(FlxColor.WHITE, 0.01, true, function()
 							{
-								add(doof);
+								if (pixelDoof != null)
+									add(pixelDoof);
+								else
+									add(doof);
 								camHUD.visible = true;
 							}, true);
 						});
