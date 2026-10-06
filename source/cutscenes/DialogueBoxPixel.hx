@@ -32,6 +32,7 @@ typedef PixelDialogueLine =
 	var text:Null<String>;
 	var speed:Null<Float>; // secondi per lettera
 	@:optional var sound:Null<String>; // suono della battitura (default 'pixelText')
+	@:optional var flip:Null<Bool>; // true = ritratto specchiato
 }
 
 typedef PixelDialogueFile =
@@ -408,6 +409,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 			spr.animation.play(expr, true);
 
 		// espressioni di dimensioni diverse: ricalcolo e allineo sempre al bordo della scatola
+		spr.flipX = (line.flip == true);
 		spr.updateHitbox();
 		spr.x = (line.side == 'right') ? FlxG.width - spr.width - 90 : 90;
 		spr.y = box.y - spr.height + 40;
