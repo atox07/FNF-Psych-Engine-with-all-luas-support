@@ -142,7 +142,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 		var tx:Float = box.x + (boxData.textX != null ? boxData.textX : box.width * 0.14);
 		var ty:Float = box.y + (boxData.textY != null ? boxData.textY : box.height * 0.34);
 		var tw:Int = Std.int(box.width * 0.72);
-		var pixelFont:String = Paths.font('pixel.otf');
+		var pixelFont:String = Paths.font('pixel-latin.ttf');
 
 		shadowText = new FlxText(tx + 2, ty + 2, tw, '', 32);
 		shadowText.font = pixelFont;
@@ -504,7 +504,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 		}
 		catch (e:Dynamic)
 		{
-			trace('[DialogueBoxPixel] dialogue-pixel.json non valido: ' + e);
+			trace('[DialogueBoxPixel] dialogue-pixel.json is not valid: ' + e);
 		}
 		return null;
 	}
@@ -530,7 +530,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 			}
 			catch (e:Dynamic)
 			{
-				trace('[DialogueBoxPixel] json della scatola "' + name + '" non valido: ' + e);
+				trace('[DialogueBoxPixel] box json "' + name + '" is not valid: ' + e);
 			}
 		}
 		return result;
@@ -557,7 +557,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 			}
 			catch (e:Dynamic)
 			{
-				trace('[DialogueBoxPixel] scatola non caricabile: ' + e);
+				trace('[DialogueBoxPixel] box could not be loaded: ' + e);
 			}
 		}
 
@@ -573,7 +573,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 		}
 		else
 		{
-			trace('[DialogueBoxPixel] scatola "' + name + '" non trovata in images/' + BOXES_FOLDER + ': uso un riquadro di emergenza');
+			trace('[DialogueBoxPixel] box "' + name + '" not found in images/' + BOXES_FOLDER + ': using a fallback rectangle');
 			box.makeGraphic(205, 58, 0xFFFFFFFF);
 		}
 
@@ -602,7 +602,7 @@ class DialogueBoxPixel extends FlxSpriteGroup
 		}
 		catch (e:Dynamic)
 		{
-			trace('[DialogueBoxPixel] ritratto "' + name + '" non caricabile: ' + e);
+			trace('[DialogueBoxPixel] portrait "' + name + '" could not be loaded: ' + e);
 		}
 
 		if (frames == null || frames.frames == null || frames.frames.length < 1)
