@@ -38,6 +38,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 	var characterInput:PsychUIInputText;
 	var expressionInput:PsychUIInputText;
 	var rightCheckbox:PsychUICheckBox;
+	var flipCheckbox:PsychUICheckBox;
 	var speedStepper:PsychUINumericStepper;
 	var soundInput:PsychUIInputText;
 	var lineInput:PsychUIInputText;
@@ -162,7 +163,8 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 			side: 'left',
 			text: 'coolswag',
 			speed: 0.04,
-			sound: DialogueBoxPixel.DEFAULT_SOUND
+			sound: DialogueBoxPixel.DEFAULT_SOUND,
+			flip: false
 		};
 	}
 
@@ -174,7 +176,8 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 			side: src.side,
 			text: src.text,
 			speed: src.speed,
-			sound: src.sound
+			sound: src.sound,
+			flip: src.flip
 		};
 	}
 
@@ -260,7 +263,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		var prevExpr:PsychUIButton = new PsychUIButton(140, 66, '< Prev.', function() cycleExpression(-1));
 		var nextExpr:PsychUIButton = new PsychUIButton(225, 66, 'Next >', function() cycleExpression(1));
 
-		rightCheckbox = new PsychUICheckBox(10, 98, 'Portrait on the right', 200);
+		rightCheckbox = new PsychUICheckBox(10, 98, 'Portrait on the right', 150);
 		rightCheckbox.onClick = function()
 		{
 			var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
@@ -268,6 +271,17 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 			if (line.side != newSide)
 			{
 				line.side = newSide;
+				refreshLine(true, true);
+			}
+		};
+
+		flipCheckbox = new PsychUICheckBox(170, 98, 'Flip portrait (mirror)', 150);
+		flipCheckbox.onClick = function()
+		{
+			var line:PixelDialogueLine = dialogueFile.dialogue[curSelected];
+			if ((line.flip == true) != flipCheckbox.checked)
+			{
+				line.flip = flipCheckbox.checked;
 				refreshLine(true, true);
 			}
 		};
@@ -302,7 +316,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		tab.add(new FlxText(10, 52, 0, 'Expression (from portrait):'));
 		tab.add(new FlxText(10, 128, 0, 'Speed (sec/letter):'));
 		tab.add(new FlxText(150, 128, 0, 'Sound (from game):'));
-		tab.add(new FlxText(10, 174, 0, 'Text (Shift+Enter = new line):'));
+		tab.add(new FlxText(10, 174, 0, 'Text (P = new line):'));
 		tab.add(characterInput);
 		tab.add(prevChar);
 		tab.add(nextChar);
@@ -310,6 +324,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		tab.add(prevExpr);
 		tab.add(nextExpr);
 		tab.add(rightCheckbox);
+		tab.add(flipCheckbox);
 		tab.add(speedStepper);
 		tab.add(soundInput);
 		tab.add(lineInput);
@@ -353,6 +368,7 @@ class DialoguePixelEditorState extends MusicBeatState implements PsychUIEventHan
 		characterInput.text = (line.portrait != null) ? line.portrait : '';
 		expressionInput.text = (line.expression != null) ? line.expression : '';
 		rightCheckbox.checked = (line.side == 'right');
+		flipCheckbox.checked = (line.flip == true);
 		speedStepper.value = (line.speed != null) ? line.speed : 0.04;
 		soundInput.text = (line.sound != null) ? line.sound : DialogueBoxPixel.DEFAULT_SOUND;
 		lineInput.text = (line.text != null) ? line.text : '';
