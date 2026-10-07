@@ -17,8 +17,18 @@ haxelib git hxcpp https://github.com/Psych-Plus-Team/hxcpp
 echo [Core] lime
 haxelib git lime https://github.com/Psych-Plus-Team/lime.git
 
-echo [DEBUG] Checking Lime NDLL...
-dir /s /b C:\haxelib\lime\ndll\Windows64\lime.ndll
+echo [DEBUG] Lime NDLL:
+if exist C:\haxelib\lime\git\ndll\Windows64\lime.ndll (
+    echo lime.ndll EXISTS
+    dir C:\haxelib\lime\git\ndll\Windows64\lime.ndll
+) else (
+    echo ERROR: lime.ndll DOES NOT EXIST
+)
+
+echo [DEBUG] Lime Git commit:
+cd /d C:\haxelib\lime\git
+git rev-parse HEAD
+cd /d "%~dp0.."
 
 echo [Core] openfl git
 haxelib git openfl https://github.com/Psych-Plus-Team/openfl.git --quiet
