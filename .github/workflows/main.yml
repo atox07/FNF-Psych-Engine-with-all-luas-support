@@ -45,7 +45,6 @@ env:
   DEV_BUILD_TAG: dev-build
 
 jobs:
-  # WARNING: Keep platform switches centralized here so manual runs stay predictable.
   check_platforms:
     name: Check Platforms
     runs-on: ubuntu-24.04
@@ -61,7 +60,7 @@ jobs:
     steps:
       - id: set_outputs
         run: |
-          if [[ "${{ github.event_name }}" =~ ^(push\vert{}pull_request)$ ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]] \vert{}\vert{} [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "build_linux=true" >> $GITHUB_OUTPUT
             echo "build_android=true" >> $GITHUB_OUTPUT
             echo "build_windows=true" >> $GITHUB_OUTPUT
@@ -172,7 +171,6 @@ jobs:
 
       - name: Setup Android SDK
         run: |
-          # WARNING: Do not install the legacy "tools" package. Modern cmdline-tools removed it.
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
@@ -271,7 +269,13 @@ jobs:
         run: |
           haxelib setup C:\haxelib
           cmd /c setup\windows-lib.bat
+
+          # Fix automatico per il file mancante signalsmith-stretch.h
           git clone https://github.com/SignalsmithAudio/signalsmith-stretch.git C:\haxelib\lime\git\project\dependencies\signalsmith-stretch
+          New-Item -ItemType Directory -Force -Path C:\haxelib\lime\git\project\include\signalsmith-stretch | Out-Null
+          Copy-Item -Path C:\haxelib\lime\git\project\dependencies\signalsmith-stretch\*.h -Destination C:\haxelib\lime\git\project\include\ -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path C:\haxelib\lime\git\project\dependencies\signalsmith-stretch\*.h -Destination C:\haxelib\lime\git\project\include\signalsmith-stretch\ -Force -ErrorAction SilentlyContinue
+
           haxelib run lime rebuild windows
 
       - name: Prepare build
