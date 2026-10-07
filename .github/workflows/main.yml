@@ -45,6 +45,7 @@ env:
   DEV_BUILD_TAG: dev-build
 
 jobs:
+  # WARNING: Keep platform switches centralized here so manual runs stay predictable.
   check_platforms:
     name: Check Platforms
     runs-on: ubuntu-24.04
@@ -171,6 +172,7 @@ jobs:
 
       - name: Setup Android SDK
         run: |
+          # WARNING: Do not install the legacy "tools" package. Modern cmdline-tools removed it.
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
@@ -178,7 +180,7 @@ jobs:
             SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)"
           fi
 
-          if [[ -z "$SDKMANAGER" \vert{}\vert{} ! -x "$SDKMANAGER" ]]; then
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
             echo "::error::Android sdkmanager was not found under $SDK_ROOT"
             exit 1
           fi
@@ -269,14 +271,6 @@ jobs:
         run: |
           haxelib setup C:\haxelib
           cmd /c setup\windows-lib.bat
-
-          # Fix automatico per il file mancante signalsmith-stretch.h
-          git clone https://github.com/SignalsmithAudio/signalsmith-stretch.git C:\haxelib\lime\git\project\dependencies\signalsmith-stretch
-          New-Item -ItemType Directory -Force -Path C:\haxelib\lime\git\project\include\signalsmith-stretch | Out-Null
-          Copy-Item -Path C:\haxelib\lime\git\project\dependencies\signalsmith-stretch\*.h -Destination C:\haxelib\lime\git\project\include\ -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path C:\haxelib\lime\git\project\dependencies\signalsmith-stretch\*.h -Destination C:\haxelib\lime\git\project\include\signalsmith-stretch\ -Force -ErrorAction SilentlyContinue
-
-          haxelib run lime rebuild windows
 
       - name: Prepare build
         run: |
@@ -543,6 +537,8 @@ jobs:
       contents: write
 
     steps:
+      # WARNING: One pattern download keeps this job lighter than many separate
+      # download steps.
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
