@@ -1252,23 +1252,32 @@ class PlayState extends MusicBeatState
 
 	public var pixelDialogue:DialogueBoxPixel;
 	// Starts a pixel (Week 6 style) dialogue. onFinish runs when the dialogue ends (default: start the countdown).
-	public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Void->Void = null):Void
-	{
-		if(pixelDialogue != null) return;
+public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Void->Void = null):Void
+{
+    if(pixelDialogue != null) return;
 
-		inCutscene = true;
-		pixelDialogue = new DialogueBoxPixel(dialogueFile);
-		pixelDialogue.scrollFactor.set();
-		pixelDialogue.finishThing = function() {
-			pixelDialogue = null;
-			if(onFinish != null) onFinish();
-			else startCountdown();
-		}
-		pixelDialogue.nextDialogueThing = startNextDialogue;
-		pixelDialogue.skipDialogueThing = skipDialogue;
-		pixelDialogue.cameras = [camHUD];
-		add(pixelDialogue);
-	}
+    inCutscene = true;
+    pixelDialogue = new DialogueBoxPixel(dialogueFile);
+    pixelDialogue.scrollFactor.set();
+    
+    pixelDialogue.finishThing = function() {
+        // 1. Rimuoviamo il dialogo dalla scena per sbloccare gli input
+        remove(pixelDialogue); 
+        
+        // 2. Distruggiamo l'oggetto per liberare memoria
+        pixelDialogue.destroy(); 
+        pixelDialogue = null;
+        
+        // 3. Facciamo partire il countdown (senza forzare inCutscene = false qui!)
+        if(onFinish != null) onFinish();
+        else startCountdown();
+    }
+    
+    pixelDialogue.nextDialogueThing = startNextDialogue;
+    pixelDialogue.skipDialogueThing = skipDialogue;
+    pixelDialogue.cameras = [camHUD];
+    add(pixelDialogue);
+}
 
 	var startTimer:FlxTimer;
 	var finishTimer:FlxTimer = null;
