@@ -61,7 +61,7 @@ jobs:
     steps:
       - id: set_outputs
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]] \vert{}\vert{} [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" =~ ^(push\vert{}pull_request)$ ]]; then
             echo "build_linux=true" >> $GITHUB_OUTPUT
             echo "build_android=true" >> $GITHUB_OUTPUT
             echo "build_windows=true" >> $GITHUB_OUTPUT
