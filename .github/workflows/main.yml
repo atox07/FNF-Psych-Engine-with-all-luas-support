@@ -61,7 +61,7 @@ jobs:
     steps:
       - id: set_outputs
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]] || [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]] \vert{}\vert{} [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "build_linux=true" >> $GITHUB_OUTPUT
             echo "build_android=true" >> $GITHUB_OUTPUT
             echo "build_windows=true" >> $GITHUB_OUTPUT
@@ -271,6 +271,7 @@ jobs:
         run: |
           haxelib setup C:\haxelib
           cmd /c setup\windows-lib.bat
+          git clone https://github.com/SignalsmithAudio/signalsmith-stretch.git C:\haxelib\lime\git\project\dependencies\signalsmith-stretch
           haxelib run lime rebuild windows
 
       - name: Prepare build
@@ -538,8 +539,6 @@ jobs:
       contents: write
 
     steps:
-      # WARNING: One pattern download keeps this job lighter than many separate
-      # download steps.
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
