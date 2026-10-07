@@ -15,7 +15,8 @@ echo [Core] hxcpp
 haxelib git hxcpp https://github.com/Psych-Plus-Team/hxcpp
 
 echo [Core] lime
-haxelib git lime https://github.com/Psych-Plus-Team/lime.git
+haxelib install lime 8.1.2
+haxelib run lime setup
 
 echo [DEBUG] Lime NDLL:
 if exist C:\haxelib\lime\git\ndll\Windows64\lime.ndll (
