@@ -21,7 +21,6 @@ import openfl.events.KeyboardEvent;
 import haxe.Json;
 
 import cutscenes.DialogueBoxPsych;
-import cutscenes.DialogueBoxPixel;
 
 import states.StoryMenuState;
 import states.FreeplayState;
@@ -731,18 +730,6 @@ class PlayState extends MusicBeatState
 			eventNotes.sort(sortByTime);
 		}
 
-		// Pixel dialogue (data/<song>/dialogue-pixel.json) for ANY stage.
-		// The built-in "school" / "schoolEvil" stages handle it themselves (School.hx / SchoolEvil.hx).
-		if (isStoryMode && !seenCutscene && curStage != 'school' && curStage != 'schoolEvil')
-		{
-			var pixelDialogueFile:PixelDialogueFile = DialogueBoxPixel.loadDialogueFile(songName);
-			if (pixelDialogueFile != null)
-			{
-				// keeps whatever the stage / scripts set as start callback and runs it AFTER the dialogue
-				var callbackAfterDialogue:Void->Void = startCallback;
-				startCallback = function() startPixelDialogue(pixelDialogueFile, callbackAfterDialogue);
-			}
-		}
 		startCallback();
 		RecalculateRating(false, false);
 
@@ -1248,26 +1235,6 @@ class PlayState extends MusicBeatState
 			FlxG.log.warn('Your dialogue file is badly formatted!');
 			startAndEnd();
 		}
-	}
-
-	public var pixelDialogue:DialogueBoxPixel;
-	// Starts a pixel (Week 6 style) dialogue. onFinish runs when the dialogue ends (default: start the countdown).
-	public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Void->Void = null):Void
-	{
-		if(pixelDialogue != null) return;
-
-		inCutscene = true;
-		pixelDialogue = new DialogueBoxPixel(dialogueFile);
-		pixelDialogue.scrollFactor.set();
-		pixelDialogue.finishThing = function() {
-			pixelDialogue = null;
-			if(onFinish != null) onFinish();
-			else startCountdown();
-		}
-		pixelDialogue.nextDialogueThing = startNextDialogue;
-		pixelDialogue.skipDialogueThing = skipDialogue;
-		pixelDialogue.cameras = [camHUD];
-		add(pixelDialogue);
 	}
 
 	var startTimer:FlxTimer;
