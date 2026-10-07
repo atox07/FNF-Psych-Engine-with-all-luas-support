@@ -17,6 +17,9 @@ haxelib git hxcpp https://github.com/Psych-Plus-Team/hxcpp
 echo [Core] lime
 haxelib git lime https://github.com/Psych-Plus-Team/lime.git
 
+echo [DEBUG] Checking Lime NDLL...
+dir /s /b C:\haxelib\lime\ndll\Windows64\lime.ndll
+
 echo [Core] openfl git
 haxelib git openfl https://github.com/Psych-Plus-Team/openfl.git --quiet
 
