@@ -61,7 +61,7 @@ jobs:
     steps:
       - id: set_outputs
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]] || [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]] \vert{}\vert{} [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "build_linux=true" >> $GITHUB_OUTPUT
             echo "build_android=true" >> $GITHUB_OUTPUT
             echo "build_windows=true" >> $GITHUB_OUTPUT
@@ -180,7 +180,7 @@ jobs:
             SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)"
           fi
 
-          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+          if [[ -z "$SDKMANAGER" \vert{}\vert{} ! -x "$SDKMANAGER" ]]; then
             echo "::error::Android sdkmanager was not found under $SDK_ROOT"
             exit 1
           fi
@@ -271,6 +271,7 @@ jobs:
         run: |
           haxelib setup C:\haxelib
           cmd /c setup\windows-lib.bat
+          haxelib run lime rebuild windows
 
       - name: Prepare build
         run: |
