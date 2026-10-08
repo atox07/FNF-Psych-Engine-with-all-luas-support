@@ -6,15 +6,15 @@ import flixel.group.FlxSpriteGroup;
 import flixel.util.FlxColor;
 import haxe.ds.ObjectMap;
 
-import backend.BaseStage;
 import backend.StageData;
+import states.stages.*;
 import states.PlayState;
 
 #if LUA_ALLOWED
 import psychlua.FunkinLua;
 #end
 #if HSCRIPT_ALLOWED
-import psychlua.HScript;
+import psychlua.backend.HScript;
 #end
 
 /**
@@ -108,23 +108,20 @@ class StageChanger
 		current = PlayState.curStage;
 
 		var slot = new StageSlot(current);
-		var gfIdx = game.members.indexOf(game.gfGroup);
 		var bfIdx = game.members.indexOf(game.boyfriendGroup);
 
 		for (i in 0...game.members.length)
 		{
 			var o = game.members[i];
 			if (o == null || !o.exists) continue;
-			if (o == game.gfGroup || o == game.dadGroup || o == game.boyfriendGroup) continue;
+			if (isEngineObject(o)) continue;
 			if (!onGameCamera(o)) continue; // HUD, debug, ecc. restano
 
-			// tutto quello che sta dietro ai personaggi è stage
-			var isBack = gfIdx >= 0 && i < gfIdx;
-			// davanti ai personaggi: solo sprite singoli sulla camera di gioco (foreground)
-			var isFront = bfIdx >= 0 && i > bfIdx
-				&& Std.isOfType(o, FlxSprite) && !Std.isOfType(o, FlxSpriteGroup);
+			// davanti ai personaggi: solo sprite singoli (foreground), per non toccare altro
+			var inFront = bfIdx >= 0 && i > bfIdx;
+			if (inFront && (!Std.isOfType(o, FlxSprite) || Std.isOfType(o, FlxSpriteGroup))) continue;
 
-			if (isBack || isFront) slot.members.push(o);
+			slot.members.push(o);
 		}
 
 		slot.stages = game.stages.copy();
@@ -136,11 +133,8 @@ class StageChanger
 		#end
 		#if HSCRIPT_ALLOWED
 		for (h in game.hscriptArray)
-		{
-			var origin:String = Reflect.field(h, 'origin');
-			if (origin != null && origin.indexOf('stages/' + current + '.hx') != -1)
+			if (h.origin != null && h.origin.indexOf('stages/' + current + '.hx') != -1)
 				slot.hscripts.push(h);
-		}
 		#end
 
 		slots.set(current, slot);
@@ -216,11 +210,6 @@ class StageChanger
 		var sd:Dynamic = StageData.getStageFile(name);
 		var saved = saveState();
 
-		// cartella assets giusta (week2, week3, ...) per trovare le immagini
-		var prevLevel = Paths.currentLevel;
-		var dir:String = (sd != null && sd.directory != null) ? sd.directory : '';
-		Paths.currentLevel = dir.toLowerCase();
-
 		var slot = new StageSlot(name);
 		var before = snapshot();
 		var stagesBefore = game.stages.length;
@@ -254,31 +243,45 @@ class StageChanger
 			st.createPost();
 		}
 
-		// 3) stage da json ("objects" dello Stage Editor) oppure script
+		// 3) objects dello Stage Editor (stesso codice di PlayState.create)
 		var objs:Array<Dynamic> = (sd != null) ? sd.objects : null;
 		if (objs != null && objs.length > 0)
 		{
+			var objBefore = snapshot();
 			try
 			{
-				var cls = Type.resolveClass('backend.StageData');
-				var fn = Reflect.field(cls, 'addObjectsToState');
 				var hideGf:Bool = (sd.hide_girlfriend == true);
-				Reflect.callMethod(cls, fn, [objs, hideGf ? null : game.gfGroup, game.dadGroup, game.boyfriendGroup, game]);
+				var list:Map<String, FlxSprite> = StageData.addObjectsToState(objs, hideGf ? null : game.gfGroup, game.dadGroup, game.boyfriendGroup, game);
+				for (key => spr in list)
+					if (!StageData.reservedNames.contains(key))
+						game.variables.set(key, spr);
 			}
 			catch (e:Dynamic)
 			{
 				warn('errore creando gli objects dello stage "' + name + '": ' + e);
 			}
+
+			// se sono stati solo aggiunti in fondo, li riporta dietro ai personaggi
+			var created = newSince(objBefore);
+			var total = game.members.length;
+			var appended = created.length > 0;
+			for (o in created)
+				if (game.members.indexOf(o) < total - created.length) appended = false;
+			if (appended)
+				for (o in created)
+				{
+					game.remove(o, true);
+					game.insert(game.members.indexOf(game.gfGroup), o);
+				}
 		}
-		else
-		{
-			#if LUA_ALLOWED
-			game.startLuasNamed('stages/' + name + '.lua');
-			#end
-			#if HSCRIPT_ALLOWED
-			game.startHScriptsNamed('stages/' + name + '.hx');
-			#end
-		}
+
+		// script dello stage (partono sempre, come in PlayState)
+		#if LUA_ALLOWED
+		game.startLuasNamed('stages/' + name + '.lua');
+		#end
+		#if HSCRIPT_ALLOWED
+		game.startHScriptsNamed('stages/' + name + '.hx');
+		#end
 
 		// 4) onCreatePost degli script appena creati
 		#if LUA_ALLOWED
@@ -294,7 +297,7 @@ class StageChanger
 		{
 			var h = game.hscriptArray[i];
 			slot.hscripts.push(h);
-			callIfExists(h, 'executeFunction', ['onCreatePost', []]);
+			if (h.exists('onCreatePost')) h.call('onCreatePost');
 		}
 		#end
 
@@ -305,7 +308,6 @@ class StageChanger
 
 		// 6) rimette a posto quello che lo stage ha toccato (zoom, camera, posizioni)
 		restoreState(saved);
-		Paths.currentLevel = prevLevel;
 
 		if (slot.isEmpty()) return null;
 		return slot;
@@ -424,7 +426,6 @@ class StageChanger
 		return {
 			zoom: game.defaultCamZoom,
 			speed: game.cameraSpeed,
-			pixel: game.isPixelStage,
 			bfCam: game.boyfriendCameraOffset.copy(),
 			dadCam: game.opponentCameraOffset.copy(),
 			gfCam: game.girlfriendCameraOffset.copy(),
@@ -439,7 +440,6 @@ class StageChanger
 	{
 		game.defaultCamZoom = s.zoom;
 		game.cameraSpeed = s.speed;
-		game.isPixelStage = s.pixel;
 		game.boyfriendCameraOffset = s.bfCam;
 		game.opponentCameraOffset = s.dadCam;
 		game.girlfriendCameraOffset = s.gfCam;
@@ -466,6 +466,14 @@ class StageChanger
 		for (o in game.members)
 			if (o != null && !before.exists(o)) r.push(o);
 		return r;
+	}
+
+	// oggetti dell'engine che non fanno parte dello stage
+	function isEngineObject(o:FlxBasic):Bool
+	{
+		return o == game.gfGroup || o == game.dadGroup || o == game.boyfriendGroup
+			|| o == game.comboGroup || o == game.uiGroup || o == game.noteGroup
+			|| o == game.camFollow;
 	}
 
 	function onGameCamera(o:FlxBasic):Bool
