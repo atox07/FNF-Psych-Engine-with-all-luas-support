@@ -10,13 +10,6 @@ import haxe.ds.ObjectMap;
 import backend.StageData;
 import states.PlayState;
 
-#if LUA_ALLOWED
-import psychlua.FunkinLua;
-#end
-#if HSCRIPT_ALLOWED
-import psychlua.backend.HScript;
-#end
-
 /**
  * Change Stage (porting Haxe della versione Lua "Change Stage v2 by Atox").
  *
@@ -59,14 +52,14 @@ private class StageSlot
 	/** Tutti gli oggetti che appartengono a questo stage (per show/hide). */
 	public var members:Array<FlxBasic> = [];
 	/** I BaseStage reali (solo per lo stage iniziale creato da PlayState.create). */
-	public var stages:Array<BaseStage> = [];
+	public var stages:Array<Dynamic> = [];
 	/** Sprite che devono riavviare l'animazione "idle" ad ogni beat (mall). */
 	public var beatSprites:Array<FlxSprite> = [];
 	#if LUA_ALLOWED
-	public var luas:Array<FunkinLua> = [];
+	public var luas:Array<Dynamic> = [];
 	#end
 	#if HSCRIPT_ALLOWED
-	public var hscripts:Array<HScript> = [];
+	public var hscripts:Array<Dynamic> = [];
 	#end
 
 	public function new(name:String)
