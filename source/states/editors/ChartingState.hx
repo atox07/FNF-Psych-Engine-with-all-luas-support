@@ -3370,6 +3370,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			refreshSelectedEventPanel();
 		}
 
+		extendEventValuesCheckbox = new PsychUICheckBox(objX, objY + 32, 'Extend Event Values', 140, function()
+		{
+			if (selectedNotes.length == 1 && selectedNotes[0].isEvent)
+			{
+				updateSelectedEventText();
+			}
+			chartEditorSave.data.extendEventValues = extendEventValuesCheckbox.checked;
+		});
+		extendEventValuesCheckbox.checked = chartEditorSave.data.extendEventValues == true;
+
 		objY += 70;
 		value1InputText = new PsychUIInputText(objX, objY, 120, '', 8);
 		value1InputText.onChange = function(old:String, cur:String) changeEventsValue(cur, 1);
@@ -3380,15 +3390,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		eventDescriptionText = new FlxText(objX, objY, 280, defaultEvents[0][1]);
 
 		objY += 30;
-		extendEventValuesCheckbox = new PsychUICheckBox(objX, objY, 'Extend Event Values', 140, function()
-		{
-			if (selectedNotes.length == 1 && selectedNotes[0].isEvent)
-			{
-				updateSelectedEventText();
-			}
-			chartEditorSave.data.extendEventValues = extendEventValuesCheckbox.checked;
-		});
-		extendEventValuesCheckbox.checked = chartEditorSave.data.extendEventValues == true;
 
 		var value3InputText:PsychUIInputText = new PsychUIInputText(objX, objY + 30, 120, '', 8);
 		value3InputText.onChange = function(old:String, cur:String) changeEventsValue(cur, 3);
@@ -6895,4 +6896,3 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		#end
 	}
 }
-
