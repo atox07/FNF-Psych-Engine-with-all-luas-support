@@ -11,7 +11,7 @@ import states.stages.*;
 import states.PlayState;
 
 #if LUA_ALLOWED
-import psychlua.FunkinLua;
+import psychlua.backend.FunkinLua; // <-- Aggiunto .backend.
 #end
 #if HSCRIPT_ALLOWED
 import psychlua.backend.HScript;
