@@ -1,41 +1,68 @@
 package backend;
 
 import flixel.FlxBasic;
+import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxSpriteGroup;
 import flixel.util.FlxColor;
 import haxe.ds.ObjectMap;
 
 import backend.StageData;
-import states.stages.*;
 import states.PlayState;
+import states.stages.BaseStage;
 
 #if LUA_ALLOWED
-import psychlua.backend.FunkinLua; // <-- Aggiunto .backend.
+import psychlua.FunkinLua;
 #end
 #if HSCRIPT_ALLOWED
 import psychlua.backend.HScript;
 #end
 
 /**
- * Evento nativo "Change Stage" (come Change Character).
+ * Change Stage (porting Haxe della versione Lua "Change Stage v2 by Atox").
  *
- * - Gli stage usati nella chart vengono creati TUTTI all'avvio della song
- *   (nascosti) -> al cambio si fa solo show/hide, zero lag.
- * - Funziona con: stage base (classi states.stages.*), stage con "objects"
- *   nel json (Stage Editor), stage moddati .lua e .hx.
+ * IMPORTANTE: gli stage built-in (stage, spooky, philly, limo, mall, mallEvil)
+ * NON vengono istanziati come classi Haxe. Vengono ricreati come semplici
+ * FlxSprite, esattamente come fa il Lua con makeLuaSprite/makeAnimatedLuaSprite.
+ * Questo evita di avere due istanze reali (es. Limo) in `PlayState.stages`,
+ * che era la causa del crash "null reference" in Limo.update().
  *
- * Uso da chart:   Event "Change Stage"
- *   Value 1: nome stage (es. spooky)
- *   Value 2: flag opzionali separati da virgola:
- *            nochars, nozoom, nocam, nogf
- * Uso da Lua:     triggerEvent('Change Stage', 'spooky', '')
+ * Evento chart:
+ *   Event "Change Stage"
+ *     Value 1: nome stage (es. "spooky", "limo", "myCustomStage")
+ *     Value 2: flag opzionali separati da virgola
+ *              noblack | nochars | nozoom | nocam | nogf
+ *
+ * Uso da Lua:
+ *   triggerEvent('Change Stage', 'spooky', '')
  */
+
+private typedef SpriteDef = {
+	var image:String;
+	var x:Float;
+	var y:Float;
+	@:optional var scroll:Float;
+	@:optional var scrollX:Float;
+	@:optional var scrollY:Float;
+	@:optional var scale:Float;
+	@:optional var flipX:Bool;
+	@:optional var anim:String;
+	@:optional var fps:Int;
+	@:optional var loop:Bool;
+	@:optional var beat:Bool;
+	@:optional var behindDad:Bool;
+	@:optional var front:Bool;
+}
+
 private class StageSlot
 {
 	public var name:String;
+	/** Tutti gli oggetti che appartengono a questo stage (per show/hide). */
 	public var members:Array<FlxBasic> = [];
+	/** I BaseStage reali (solo per lo stage iniziale creato da PlayState.create). */
 	public var stages:Array<BaseStage> = [];
+	/** Sprite che devono riavviare l'animazione "idle" ad ogni beat (mall). */
+	public var beatSprites:Array<FlxSprite> = [];
 	#if LUA_ALLOWED
 	public var luas:Array<FunkinLua> = [];
 	#end
@@ -51,31 +78,54 @@ private class StageSlot
 	public function isEmpty():Bool
 	{
 		var empty = members.length == 0 && stages.length == 0;
-		#if LUA_ALLOWED
-		empty = empty && luas.length == 0;
-		#end
-		#if HSCRIPT_ALLOWED
-		empty = empty && hscripts.length == 0;
-		#end
+		#if LUA_ALLOWED empty = empty && luas.length == 0; #end
+		#if HSCRIPT_ALLOWED empty = empty && hscripts.length == 0; #end
 		return empty;
 	}
 }
 
 class StageChanger
 {
-	// nome stage base -> possibili nomi della classe in states.stages
-	static var CLASS_NAMES:Map<String, Array<String>> = [
-		'stage' => ['StageWeek1'],
-		'spooky' => ['Spooky'],
-		'philly' => ['Philly', 'PhillyNice'],
-		'limo' => ['Limo'],
-		'mall' => ['Mall'],
-		'mallEvil' => ['MallEvil'],
-		'school' => ['School'],
-		'schoolEvil' => ['SchoolEvil'],
-		'tank' => ['Tank'],
-		'phillyStreets' => ['PhillyStreets'],
-		'phillyBlazin' => ['PhillyBlazin']
+	// ------------------------------------------------------------------
+	// Definizione sprite degli stage built-in (identica alla tabella
+	// BUILTIN del Lua).
+	// ------------------------------------------------------------------
+	static var BUILTIN:Map<String, Array<SpriteDef>> = [
+		'stage' => [
+			{ image: 'stageback',     x: -600, y: -200, scroll: 0.9 },
+			{ image: 'stagefront',    x: -650, y: 600,  scroll: 0.9, scale: 1.1 },
+			{ image: 'stage_light',   x: -125, y: -100, scroll: 0.9, scale: 1.1 },
+			{ image: 'stage_light',   x: 1225, y: -100, scroll: 0.9, scale: 1.1, flipX: true },
+			{ image: 'stagecurtains', x: -500, y: -300, scroll: 1.3, scale: 0.9 },
+		],
+		'spooky' => [
+			{ image: 'halloween_bg', x: -200, y: -100, anim: 'halloweem bg0' },
+		],
+		'philly' => [
+			{ image: 'philly/sky',         x: -100, y: 0, scroll: 0.1 },
+			{ image: 'philly/city',        x: -10,  y: 0, scroll: 0.3, scale: 0.85 },
+			{ image: 'philly/behindTrain', x: -40,  y: 50 },
+			{ image: 'philly/street',      x: -40,  y: 50 },
+		],
+		'limo' => [
+			{ image: 'limo/limoSunset', x: -120, y: -50, scroll: 0.1 },
+			{ image: 'limo/bgLimo',     x: -150, y: 480, scroll: 0.4, anim: 'background limo pink', loop: true },
+			{ image: 'limo/limoDrive',  x: -120, y: 550, anim: 'Limo stage', loop: true, behindDad: true },
+		],
+		'mall' => [
+			{ image: 'christmas/bgWalls',       x: -1000, y: -500, scroll: 0.2,  scale: 0.8 },
+			{ image: 'christmas/upperBop',      x: -240,  y: -90,  scroll: 0.33, scale: 0.85, anim: 'Upper Crowd Bob', beat: true },
+			{ image: 'christmas/bgEscalator',   x: -1100, y: -600, scroll: 0.3,  scale: 0.9 },
+			{ image: 'christmas/christmasTree', x: 370,   y: -250, scroll: 0.4 },
+			{ image: 'christmas/bottomBop',     x: -300,  y: 140,  scroll: 0.9,  anim: 'Bottom Level Boppers Idle', beat: true },
+			{ image: 'christmas/fgSnow',        x: -600,  y: 700 },
+			{ image: 'christmas/santa',         x: -840,  y: 150,  anim: 'santa idle in fear', beat: true },
+		],
+		'mallEvil' => [
+			{ image: 'christmas/evilBG',   x: -400, y: -500, scroll: 0.2, scale: 0.8 },
+			{ image: 'christmas/evilTree', x: 300,  y: -300, scroll: 0.2 },
+			{ image: 'christmas/evilSnow', x: -200, y: 700 },
+		],
 	];
 
 	var game:PlayState;
@@ -84,24 +134,36 @@ class StageChanger
 
 	public var current(default, null):String = '';
 
+	var blackBg:FlxSprite = null;
+
+	// beat hook per le animazioni beat-synced (mall)
+	var lastBeat:Int = -1;
+	var hookInstalled:Bool = false;
+
 	public function new(game:PlayState)
 	{
 		this.game = game;
 	}
 
-	// ------------------------------------------------------------------
-	// API pubblica (chiamata da PlayState)
-	// ------------------------------------------------------------------
+	// ==================================================================
+	// API PUBBLICA
+	// ==================================================================
 
-	/** Da eventPushed: segna lo stage da precaricare. */
+	/** Chiamato da eventPushed: segna lo stage da precaricare. */
 	public function queue(name:String):Void
 	{
 		name = StringTools.trim(name == null ? '' : name);
-		if (name != '' && queued.indexOf(name) == -1)
+		if (name == '' || name == current) return;    // <-- non ricreare lo stage attuale
+		if (queued.indexOf(name) == -1)
 			queued.push(name);
 	}
 
-	/** A fine create(): registra lo stage iniziale della song, così si può nascondere. */
+	/**
+	 * A fine create(): registra lo stage iniziale della song.
+	 * Nota: NON distruggiamo lo stage reale creato da PlayState.create(),
+	 * ci limitiamo a raccogliere i suoi sprite e (se presente) i BaseStage
+	 * per poterli nascondere/mostrare.
+	 */
 	public function captureInitial():Void
 	{
 		if (current != '') return;
@@ -124,6 +186,8 @@ class StageChanger
 			slot.members.push(o);
 		}
 
+		// Raccogli anche i BaseStage reali (Limo.hx, Spooky.hx, ecc.)
+		// così possiamo disattivarli quando lo stage viene nascosto.
 		slot.stages = game.stages.copy();
 
 		#if LUA_ALLOWED
@@ -138,6 +202,9 @@ class StageChanger
 		#end
 
 		slots.set(current, slot);
+
+		ensureBlack();
+		installBeatHook();
 	}
 
 	/** A fine create(): crea (nascosti) tutti gli stage della chart. */
@@ -145,7 +212,9 @@ class StageChanger
 	{
 		for (n in queued)
 		{
+			if (n == current) continue;                 // <-- sicurezza extra
 			if (slots.exists(n)) continue;
+
 			var slot = build(n);
 			if (slot != null)
 			{
@@ -162,134 +231,114 @@ class StageChanger
 		name = StringTools.trim(name == null ? '' : name);
 		if (name == '') return;
 
-		if (current == '') captureInitial(); // evento lanciato senza essere nella chart
+		if (current == '') captureInitial();
 		if (name == current) return;
 
 		var flags = parseFlags(flagsStr);
 
+		// 1) cleanup / hide stage precedente
+		var prev = slots.get(current);
+		if (prev != null) setSlot(prev, false);
+
+		// 2) nero di sicurezza (come il Lua)
+		ensureBlack();
+		setBlack(!flags.exists('noblack'));
+
+		// 3) ottieni o crea lo stage nuovo
 		var next = slots.get(name);
 		if (next == null)
 		{
-			// non era stato precaricato (es. triggerEvent da script): lo crea ora
 			next = build(name);
 			if (next == null)
 			{
-				warn('stage "' + name + '" non trovato (nessuna classe base, json objects, .lua o .hx).');
+				warn('stage "' + name + '" not found (no builtin, no .lua/.hx, no objects).');
 				return;
 			}
-			setSlot(next, false);
 			slots.set(name, next);
 		}
 
-		var prev = slots.get(current);
-		if (prev != null) setSlot(prev, false);
+		// 4) mostra il nuovo
 		setSlot(next, true);
 		current = name;
 
+		// 5) applica dati dal json (posizioni, zoom, camera)
 		applyStageData(StageData.getStageFile(name), flags);
+
+		// 6) camera
 		game.moveCameraSection();
 	}
 
-	/** Da PlayState.destroy(): chiude gli script degli stage nascosti. */
+	/** Chiamato da PlayState.destroy(). */
 	public function destroy():Void
 	{
+		if (hookInstalled)
+		{
+			FlxG.signals.postUpdate.remove(beatHook);
+			hookInstalled = false;
+		}
+
 		#if LUA_ALLOWED
 		for (s in slots)
 			for (l in s.luas)
 				if (game.luaArray.indexOf(l) == -1)
 					l.stop();
 		#end
+
 		slots.clear();
+		blackBg = null;
 	}
 
-	// ------------------------------------------------------------------
-	// Costruzione di uno stage
-	// ------------------------------------------------------------------
+	// ==================================================================
+	// COSTRUZIONE STAGE
+	// ==================================================================
 	function build(name:String):StageSlot
 	{
-		var sd:Dynamic = StageData.getStageFile(name);
-		var saved = saveState();
+		if (name == current || slots.exists(name)) return null;
 
 		var slot = new StageSlot(name);
 		var before = snapshot();
-		var stagesBefore = game.stages.length;
-		#if LUA_ALLOWED
-		var luaBefore = game.luaArray.length;
-		#end
-		#if HSCRIPT_ALLOWED
-		var hBefore = game.hscriptArray.length;
-		#end
 
-		// 1) classe Haxe dello stage base (se esiste)
-		createBaseStage(name);
+		// 1) stage built-in: ricrea come sprite (come fa il Lua) ------------
+		if (BUILTIN.exists(name))
+			buildBuiltin(name, slot, false); // nascosto inizialmente
 
-		// gli add() fatti in create() finiscono in fondo: li riporta dietro ai personaggi
-		var bfIdx = game.members.indexOf(game.boyfriendGroup);
-		for (o in newSince(before))
-		{
-			if (game.members.indexOf(o) > bfIdx)
-			{
-				game.remove(o, true);
-				game.insert(game.members.indexOf(game.gfGroup), o);
-			}
-		}
-
-		// 2) eventi già caricati + createPost
-		var newStages = game.stages.slice(stagesBefore);
-		for (st in newStages)
-		{
-			for (ev in game.eventNotes)
-				callIfExists(st, 'eventPushed', [ev]);
-			st.createPost();
-		}
-
-		// 3) objects dello Stage Editor (stesso codice di PlayState.create)
+		// 2) oggetti json del stage (Stage Editor) --------------------------
+		var sd:Dynamic = StageData.getStageFile(name);
 		var objs:Array<Dynamic> = (sd != null) ? sd.objects : null;
 		if (objs != null && objs.length > 0)
 		{
-			var objBefore = snapshot();
 			try
 			{
 				var hideGf:Bool = (sd.hide_girlfriend == true);
-				var list:Map<String, FlxSprite> = StageData.addObjectsToState(objs, hideGf ? null : game.gfGroup, game.dadGroup, game.boyfriendGroup, game);
+				var list:Map<String, FlxSprite> = StageData.addObjectsToState(objs,
+					hideGf ? null : game.gfGroup, game.dadGroup, game.boyfriendGroup, game);
 				for (key => spr in list)
 					if (!StageData.reservedNames.contains(key))
 						game.variables.set(key, spr);
 			}
 			catch (e:Dynamic)
 			{
-				warn('errore creando gli objects dello stage "' + name + '": ' + e);
+				warn('error creating objects for "' + name + '": ' + e);
 			}
-
-			// se sono stati solo aggiunti in fondo, li riporta dietro ai personaggi
-			var created = newSince(objBefore);
-			var total = game.members.length;
-			var appended = created.length > 0;
-			for (o in created)
-				if (game.members.indexOf(o) < total - created.length) appended = false;
-			if (appended)
-				for (o in created)
-				{
-					game.remove(o, true);
-					game.insert(game.members.indexOf(game.gfGroup), o);
-				}
 		}
 
-		// script dello stage (partono sempre, come in PlayState)
+		// 3) script dello stage (.lua / .hx) --------------------------------
 		#if LUA_ALLOWED
+		var luaBefore = game.luaArray.length;
 		game.startLuasNamed('stages/' + name + '.lua');
 		#end
 		#if HSCRIPT_ALLOWED
+		var hBefore = game.hscriptArray.length;
 		game.startHScriptsNamed('stages/' + name + '.hx');
 		#end
 
-		// 4) onCreatePost degli script appena creati
+		// 4) chiama onCreatePost sugli script appena creati ------------------
 		#if LUA_ALLOWED
 		for (i in luaBefore...game.luaArray.length)
 		{
 			var l = game.luaArray[i];
 			slot.luas.push(l);
-			l.call('onCreatePost', []);
+			try l.call('onCreatePost', []) catch (e:Dynamic) {};
 		}
 		#end
 		#if HSCRIPT_ALLOWED
@@ -297,50 +346,104 @@ class StageChanger
 		{
 			var h = game.hscriptArray[i];
 			slot.hscripts.push(h);
-			if (h.exists('onCreatePost')) h.call('onCreatePost');
+			if (h.exists('onCreatePost'))
+			{
+				try h.call('onCreatePost') catch (e:Dynamic) {};
+			}
 		}
 		#end
 
-		// 5) raccoglie tutto quello che è stato creato
+		// 5) raccogli i nuovi membri (da objects / script) -------------------
 		for (o in newSince(before))
-			if (o.exists) slot.members.push(o);
-		slot.stages = newStages;
+			if (o != null && o.exists) slot.members.push(o);
 
-		// 6) rimette a posto quello che lo stage ha toccato (zoom, camera, posizioni)
-		restoreState(saved);
+		// 6) sposta gli sprite appena aggiunti dietro ai personaggi ---------
+		for (o in slot.members)
+			insertBehindChars(o);
 
 		if (slot.isEmpty()) return null;
 		return slot;
 	}
 
-	function createBaseStage(name:String):Void
+	/**
+	 * Ricrea uno stage built-in come sprite, esattamente come il Lua.
+	 * NON istanzia la classe states.stages.* — questo è il punto cruciale.
+	 */
+	function buildBuiltin(name:String, slot:StageSlot, visible:Bool):Void
 	{
-		var names = CLASS_NAMES.get(name);
-		if (names == null) return;
-		for (n in names)
+		var defs = BUILTIN.get(name);
+		if (defs == null) return;
+
+		for (i in 0...defs.length)
 		{
-			var cls = Type.resolveClass('states.stages.' + n);
-			if (cls == null) continue;
-			try
+			var d = defs[i];
+			var spr:FlxSprite = new FlxSprite(d.x, d.y);
+			spr.antialiasing = ClientPrefs.data.antialiasing;
+
+			var animFps:Int  = (d.fps != null) ? d.fps : 24;
+			var doLoop:Bool  = (d.loop == true);
+
+			if (d.anim != null)
 			{
-				Type.createInstance(cls, []);
+				// come makeAnimatedLuaSprite: usa XML + PNG
+				spr.frames = Paths.getSparrowAtlas(d.image);
+				spr.animation.addByPrefix('idle', d.anim, animFps, doLoop);
+				spr.animation.play('idle', true);
 			}
-			catch (e:Dynamic)
+			else
 			{
-				warn('errore creando lo stage base "' + name + '": ' + e);
+				// come makeLuaSprite: sprite statico
+				spr.loadGraphic(Paths.image(d.image));
 			}
-			return;
+
+			var sx:Float = (d.scrollX != null) ? d.scrollX : ((d.scroll != null) ? d.scroll : 1);
+			var sy:Float = (d.scrollY != null) ? d.scrollY : ((d.scroll != null) ? d.scroll : 1);
+			spr.scrollFactor.set(sx, sy);
+
+			if (d.scale != null) spr.scale.set(d.scale, d.scale);
+			if (d.flipX == true) spr.flipX = true;
+
+			spr.updateHitbox();
+
+			// NON tocchiamo `visible` per preservare eventuali hidden state.
+			// Usiamo exists/active per il toggle, come il resto di PlayState.
+			spr.exists = visible;
+			spr.active = visible;
+
+			game.add(spr);
+			slot.members.push(spr);
+			if (d.beat == true) slot.beatSprites.push(spr);
+
+			// dietro ai personaggi (come addLuaSprite(tag, false))
+			insertBehindChars(spr);
+
+			// ordine speciale: dietro Dad (limoDrive)
+			if (d.behindDad == true && game.dadGroup != null)
+			{
+				var dadIdx = game.members.indexOf(game.dadGroup);
+				if (dadIdx >= 0)
+				{
+					game.remove(spr, true);
+					game.insert(dadIdx, spr);
+				}
+			}
 		}
 	}
 
-	// ------------------------------------------------------------------
-	// Mostra / nascondi uno stage
-	// ------------------------------------------------------------------
+	// ==================================================================
+	// SHOW / HIDE
+	// ==================================================================
 	function setSlot(s:StageSlot, on:Bool):Void
 	{
 		for (o in s.members)
-			if (o != null) o.exists = on;
+		{
+			if (o == null) continue;
+			o.exists = on;
+			o.active = on;
+		}
 
+		// BaseStage reali (solo lo stage iniziale). Li disattiviamo per
+		// evitare che update() giri su stage nascosti.
 		for (st in s.stages)
 		{
 			st.exists = on;
@@ -372,9 +475,41 @@ class StageChanger
 		#end
 	}
 
-	// ------------------------------------------------------------------
-	// Dati del json (posizioni, zoom, camera)
-	// ------------------------------------------------------------------
+	// ==================================================================
+	// SFONDO NERO (come il tag changeStage_black del Lua)
+	// ==================================================================
+	function ensureBlack():Void
+	{
+		if (blackBg != null && blackBg.exists) return;
+
+		blackBg = new FlxSprite(-3000, -3000);
+		blackBg.makeGraphic(100, 100, FlxColor.BLACK);
+		blackBg.scale.set(80, 70);
+		blackBg.updateHitbox();
+		blackBg.scrollFactor.set(0, 0);
+		blackBg.visible = false;
+		blackBg.active = false;
+
+		game.add(blackBg);
+
+		// Inseriscilo in testa all'array: è disegnato per PRIMO, quindi sta
+		// dietro a tutto (personaggi, stage, HUD).
+		var cur = game.members.indexOf(blackBg);
+		if (cur > 0)
+		{
+			game.remove(blackBg, true);
+			game.insert(0, blackBg);
+		}
+	}
+
+	function setBlack(v:Bool):Void
+	{
+		if (blackBg != null) blackBg.visible = v;
+	}
+
+	// ==================================================================
+	// DATI STAGE DAL JSON
+	// ==================================================================
 	function applyStageData(sd:Dynamic, flags:Map<String, Bool>):Void
 	{
 		if (sd == null) return;
@@ -401,8 +536,8 @@ class StageChanger
 			}
 		}
 
-		if (!flags.exists('nogf'))
-			game.gfGroup.visible = (sd.hide_girlfriend != true);
+		if (!flags.exists('nogf') && sd.hide_girlfriend != null)
+			game.gfGroup.visible = !(sd.hide_girlfriend == true);
 
 		if (!flags.exists('nozoom') && sd.defaultZoom != null)
 			game.defaultCamZoom = num(sd.defaultZoom, game.defaultCamZoom);
@@ -420,38 +555,55 @@ class StageChanger
 		}
 	}
 
-	// salva/ripristina quello che uno stage appena creato potrebbe modificare
-	function saveState():Dynamic
+	// ==================================================================
+	// BEAT HOOK (per le animazioni beat-synced tipo mall)
+	// ==================================================================
+	function installBeatHook():Void
 	{
-		return {
-			zoom: game.defaultCamZoom,
-			speed: game.cameraSpeed,
-			bfCam: game.boyfriendCameraOffset.copy(),
-			dadCam: game.opponentCameraOffset.copy(),
-			gfCam: game.girlfriendCameraOffset.copy(),
-			bfX: game.boyfriendGroup.x, bfY: game.boyfriendGroup.y,
-			dadX: game.dadGroup.x, dadY: game.dadGroup.y,
-			gfX: game.gfGroup.x, gfY: game.gfGroup.y,
-			gfVisible: game.gfGroup.visible
-		};
+		if (hookInstalled) return;
+		hookInstalled = true;
+		FlxG.signals.postUpdate.add(beatHook);
 	}
 
-	function restoreState(s:Dynamic):Void
+	function beatHook():Void
 	{
-		game.defaultCamZoom = s.zoom;
-		game.cameraSpeed = s.speed;
-		game.boyfriendCameraOffset = s.bfCam;
-		game.opponentCameraOffset = s.dadCam;
-		game.girlfriendCameraOffset = s.gfCam;
-		game.boyfriendGroup.setPosition(s.bfX, s.bfY);
-		game.dadGroup.setPosition(s.dadX, s.dadY);
-		game.gfGroup.setPosition(s.gfX, s.gfY);
-		game.gfGroup.visible = s.gfVisible;
+		if (game == null) return;
+		var cb:Int = game.curBeat;
+		if (cb == lastBeat) return;
+		lastBeat = cb;
+		onBeat();
 	}
 
-	// ------------------------------------------------------------------
-	// Utility
-	// ------------------------------------------------------------------
+	function onBeat():Void
+	{
+		var slot = slots.get(current);
+		if (slot == null) return;
+		for (spr in slot.beatSprites)
+		{
+			if (spr != null && spr.exists && spr.animation != null && spr.animation.exists('idle'))
+				spr.animation.play('idle', true);
+		}
+	}
+
+	// ==================================================================
+	// UTILITY
+	// ==================================================================
+	function insertBehindChars(spr:FlxBasic):Void
+	{
+		if (spr == null) return;
+		var ref:FlxBasic = game.gfGroup != null ? game.gfGroup : game.boyfriendGroup;
+		if (ref == null) return;
+
+		var refIdx = game.members.indexOf(ref);
+		if (refIdx < 0) return;
+
+		var curIdx = game.members.indexOf(spr);
+		if (curIdx < 0 || curIdx < refIdx) return; // già dietro
+
+		game.remove(spr, true);
+		game.insert(refIdx, spr);
+	}
+
 	function snapshot():ObjectMap<FlxBasic, Bool>
 	{
 		var m = new ObjectMap<FlxBasic, Bool>();
@@ -468,12 +620,12 @@ class StageChanger
 		return r;
 	}
 
-	// oggetti dell'engine che non fanno parte dello stage
 	function isEngineObject(o:FlxBasic):Bool
 	{
 		return o == game.gfGroup || o == game.dadGroup || o == game.boyfriendGroup
 			|| o == game.comboGroup || o == game.uiGroup || o == game.noteGroup
-			|| o == game.camFollow;
+			|| o == game.camFollow
+			|| o == blackBg;
 	}
 
 	function onGameCamera(o:FlxBasic):Bool
@@ -501,23 +653,10 @@ class StageChanger
 		return Math.isNaN(f) ? def : f;
 	}
 
-	function callIfExists(obj:Dynamic, fn:String, args:Array<Dynamic>):Void
-	{
-		try
-		{
-			var f = Reflect.field(obj, fn);
-			if (f != null) Reflect.callMethod(obj, f, args);
-		}
-		catch (e:Dynamic)
-		{
-			trace('[Change Stage] errore in ' + fn + ': ' + e);
-		}
-	}
-
 	function warn(msg:String):Void
 	{
 		trace('[Change Stage] ' + msg);
-		#if LUA_ALLOWED
+		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
 		game.addTextToDebug('[Change Stage] ' + msg, FlxColor.YELLOW);
 		#end
 	}
