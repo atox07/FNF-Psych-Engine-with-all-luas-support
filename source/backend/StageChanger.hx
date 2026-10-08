@@ -319,97 +319,107 @@ class StageChanger
 	}
 
 	function buildBuiltin(name:String, slot:StageSlot, visible:Bool):Void
-	{
-		var defs = BUILTIN.get(name);
-		if (defs == null) return;
+{
+    var defs = BUILTIN.get(name);
+    if (defs == null) return;
 
-		// --- Legge "directory" dal JSON dello stage (come fa il Lua con setLevel) ---
-		var dir:String = '';
-		try
-		{
-			var jsonPath:String = Paths.getPath('stages/' + name + '.json', TEXT);
-			if (FileSystem.exists(jsonPath))
-			{
-				var raw:Dynamic = haxe.Json.parse(File.getContent(jsonPath));
-				if (raw != null && raw.directory != null)
-					dir = Std.string(raw.directory);
-			}
-		}
-		catch (e:Dynamic)
-		{
-			trace('[ChangeStage] errore leggendo stages/' + name + '.json: ' + e);
-		}
+    // ---- Legge il JSON con lo stesso metodo del Lua ----
+    var dir:String = '';
+    var rawText:String = Paths.getTextFromFile('stages/' + name + '.json');
+    if (rawText != null && rawText.length > 0)
+    {
+        try
+        {
+            var raw:Dynamic = haxe.Json.parse(rawText);
+            if (raw != null && raw.directory != null)
+                dir = Std.string(raw.directory);
+        }
+        catch (e:Dynamic)
+        {
+            trace('[ChangeStage] json parse error: ' + e);
+        }
+    }
+    else
+    {
+        trace('[ChangeStage] json NOT FOUND: stages/' + name + '.json');
+    }
 
-		// Legge il currentLevel attuale per ripristinarlo dopo
-		var prevLevel:String = '';
-		try prevLevel = Std.string(Reflect.field(Paths, 'currentLevel')) catch (e:Dynamic) {};
+    // ---- Salva currentLevel attuale ----
+    var prevLevel:Dynamic = null;
+    try prevLevel = Reflect.field(Paths, 'currentLevel') catch (e:Dynamic) {};
 
-		// Applica la nuova directory scrivendo direttamente sulla statica
-		if (dir.length > 0)
-		{
-			try Reflect.setProperty(Paths, 'currentLevel', dir)
-			catch (e:Dynamic) trace('[ChangeStage] setProperty currentLevel fallito: ' + e);
-		}
+    // ---- Applica la nuova directory (doppia strategia) ----
+    if (dir.length > 0)
+    {
+        try Reflect.setProperty(Paths, 'currentLevel', dir)
+        catch (e:Dynamic) trace('[ChangeStage] setProperty failed: ' + e);
+        try Reflect.setField(Paths, 'currentLevel', dir)
+        catch (e:Dynamic) trace('[ChangeStage] setField failed: ' + e);
+    }
 
-		trace('[ChangeStage] stage=$name directory=$dir prevLevel=$prevLevel');
-		// ---------------------------------------------------------------------------
+    trace('[ChangeStage] stage=$name dir=$dir prev=$prevLevel now=' + Std.string(Reflect.field(Paths, 'currentLevel')));
+    // ----------------------------------------------------
 
-		for (i in 0...defs.length)
-		{
-			var d = defs[i];
-			var spr:FlxSprite = new FlxSprite(d.x, d.y);
-			spr.antialiasing = ClientPrefs.data.antialiasing;
+    for (i in 0...defs.length)
+    {
+        var d = defs[i];
+        var spr:FlxSprite = new FlxSprite(d.x, d.y);
+        spr.antialiasing = ClientPrefs.data.antialiasing;
 
-			var animFps:Int = (d.fps != null) ? d.fps : 24;
-			var doLoop:Bool = (d.loop == true);
+        // *** PULISCI LA CACHE prima di ricaricare ***
+        // Se l'immagine è già cachata (magari come placeholder), rimuovila
+        try FlxG.bitmap.removeByKey(d.image) catch (e:Dynamic) {};
 
-			if (d.anim != null)
-			{
-				spr.frames = Paths.getSparrowAtlas(d.image);
-				spr.animation.addByPrefix('idle', d.anim, animFps, doLoop);
-				spr.animation.play('idle', true);
-			}
-			else
-			{
-				spr.loadGraphic(Paths.image(d.image));
-			}
+        var animFps:Int = (d.fps != null) ? d.fps : 24;
+        var doLoop:Bool = (d.loop == true);
 
-			var sx:Float = (d.scrollX != null) ? d.scrollX : ((d.scroll != null) ? d.scroll : 1);
-			var sy:Float = (d.scrollY != null) ? d.scrollY : ((d.scroll != null) ? d.scroll : 1);
-			spr.scrollFactor.set(sx, sy);
+        if (d.anim != null)
+        {
+            spr.frames = Paths.getSparrowAtlas(d.image);
+            spr.animation.addByPrefix('idle', d.anim, animFps, doLoop);
+            spr.animation.play('idle', true);
+        }
+        else
+        {
+            spr.loadGraphic(Paths.image(d.image));
+        }
 
-			if (d.scale != null) spr.scale.set(d.scale, d.scale);
-			if (d.flipX == true) spr.flipX = true;
+        var sx:Float = (d.scrollX != null) ? d.scrollX : ((d.scroll != null) ? d.scroll : 1);
+        var sy:Float = (d.scrollY != null) ? d.scrollY : ((d.scroll != null) ? d.scroll : 1);
+        spr.scrollFactor.set(sx, sy);
 
-			spr.updateHitbox();
-			spr.visible = true;
-			spr.exists = visible;
-			spr.active = visible;
+        if (d.scale != null) spr.scale.set(d.scale, d.scale);
+        if (d.flipX == true) spr.flipX = true;
 
-			game.add(spr);
-			slot.members.push(spr);
-			if (d.beat == true) slot.beatSprites.push(spr);
+        spr.updateHitbox();
+        spr.visible = true;
+        spr.exists = visible;
+        spr.active = visible;
 
-			insertBehindChars(spr);
+        game.add(spr);
+        slot.members.push(spr);
+        if (d.beat == true) slot.beatSprites.push(spr);
 
-			if (d.behindDad == true && game.dadGroup != null)
-			{
-				var dadIdx = game.members.indexOf(game.dadGroup);
-				if (dadIdx >= 0)
-				{
-					game.remove(spr, true);
-					game.insert(dadIdx, spr);
-				}
-			}
-		}
+        insertBehindChars(spr);
 
-		// Ripristina la directory precedente
-		if (prevLevel != null)
-		{
-			try Reflect.setProperty(Paths, 'currentLevel', prevLevel)
-			catch (e:Dynamic) {};
-		}
-	}
+        if (d.behindDad == true && game.dadGroup != null)
+        {
+            var dadIdx = game.members.indexOf(game.dadGroup);
+            if (dadIdx >= 0)
+            {
+                game.remove(spr, true);
+                game.insert(dadIdx, spr);
+            }
+        }
+    }
+
+    // ---- Ripristina currentLevel ----
+    if (prevLevel != null)
+    {
+        try Reflect.setProperty(Paths, 'currentLevel', prevLevel) catch (e:Dynamic) {};
+        try Reflect.setField(Paths, 'currentLevel', prevLevel) catch (e:Dynamic) {};
+    }
+}
 
 	// ==================================================================
 	// SHOW / HIDE
