@@ -9,7 +9,6 @@ import haxe.ds.ObjectMap;
 
 import backend.StageData;
 import states.PlayState;
-import states.stages.objects.BaseStage;
 
 #if LUA_ALLOWED
 import psychlua.FunkinLua;
