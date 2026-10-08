@@ -111,6 +111,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			"Value 1: Character to change (Dad, BF, GF)\nValue 2: New character's name"
 		],
 		[
+			'Change Stage',
+			"Value 1: Stage name \nValue 2: Optional flags separated by commas: nochars, nozoom, nocam, nogf\n\nAll stages used in the chart are preloaded when the song starts."
+		],
+		[
 			'Change Scroll Speed',
 			"Value 1: Scroll Speed Multiplier (1 is default)\nValue 2: Time it takes to change fully in seconds."
 		],
