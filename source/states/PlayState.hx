@@ -296,6 +296,14 @@ class PlayState extends MusicBeatState
 	public var opponentCameraOffset:Array<Float> = null;
 	public var girlfriendCameraOffset:Array<Float> = null;
 
+	// Evento "Change Stage"
+	public var stageChanger:StageChanger;
+	public function getStageChanger():StageChanger
+	{
+		if (stageChanger == null) stageChanger = new StageChanger(this);
+		return stageChanger;
+	}
+
 	#if DISCORD_ALLOWED
 	// Discord RPC variables
 	var storyDifficultyText:String = "";
@@ -762,6 +770,13 @@ class PlayState extends MusicBeatState
 
 		stagesFunc(function(stage:BaseStage) stage.createPost());
 		callOnScripts('onCreatePost');
+
+		// Change Stage: registra lo stage iniziale e precarica (nascosti) quelli della chart
+		if (stageChanger != null)
+		{
+			stageChanger.captureInitial();
+			stageChanger.preloadQueued();
+		}
 
 		initModchart();
 		#if MODCHART_ALLOWED
@@ -2005,6 +2020,9 @@ public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Voi
 
 			case 'Play Sound':
 				Paths.sound(event.value1); //Precache sound
+
+			case 'Change Stage':
+				getStageChanger().queue(event.value1);
 		}
 		stagesFunc(function(stage:BaseStage) stage.eventPushedUnique(event));
 	}
@@ -2779,6 +2797,9 @@ public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Voi
 					}
 				}
 
+
+			case 'Change Stage':
+				getStageChanger().change(value1, value2);
 
 			case 'Change Character':
 				var charType:Int = 0;
@@ -4232,6 +4253,8 @@ public function startPixelDialogue(dialogueFile:PixelDialogueFile, ?onFinish:Voi
 	}
 
 	override function destroy() {
+		if (stageChanger != null) stageChanger.destroy();
+
 		#if MODCHART_ALLOWED
 		if (mcInitCb != null)
 		{
