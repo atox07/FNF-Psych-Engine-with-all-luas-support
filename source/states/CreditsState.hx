@@ -58,6 +58,14 @@ class CreditsState extends MusicBeatState
 
 		var defaultList:Array<Array<String>> = [
 			// Name - Icon name - Description - Link - BG Color
+			    ['Super Plus Engine'],
+    [
+        'AtoX',
+        'ato',
+        'Developer of Super Plus Engine',
+        'https://www.youtube.com/@truzynx__',
+        'FF0000'
+    ],
 			['Plus Engine Team'],
 			[
 				'Lenin Asto',
