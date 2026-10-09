@@ -123,10 +123,11 @@ You need to have:
 - Android NDK r27d
 - Java JDK 21
 
-# Exclusive Super Plus Engine Additions (by AtoX)
+# Exclusive Super Plus Engine Additions
 
 - **Psych 0.6.3 Lua Compatibility Layer (Hardcoded & Wrapper):** Added support for legacy Psych 0.6.3 Lua scripts using a dedicated wrapper in the `scripts/` folder, which is also natively injected and hardcoded into the source code to ensure automatic real-time conversion.
 - **Dialogue Pixel Editor:** Added a new dedicated editor that allows you to easily edit and customize Week 6 pixel dialogues directly in-game.
+- **Change Stage Event:** Built-in hardcoded stage changing event designed for instantaneous switching with zero frame drops or lag.
 
 # Features inherited from Plus Engine (after 1.0.4)
 
