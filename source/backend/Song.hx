@@ -108,21 +108,31 @@ class Song
 	public var gfVersion:String = 'gf';
 	public var format:String = 'psych_v1';
 
-	public static function convert(songJson:Dynamic) // Convert old charts to psych_v1 format
+	public static function convert(songJson:Dynamic) // Convert old charts (0.6.3 and older) to psych_v1 format
 	{
-		if (songJson.gfVersion == null)
-		{
-			songJson.gfVersion = songJson.player3;
-			if (Reflect.hasField(songJson, 'player3'))
-				Reflect.deleteField(songJson, 'player3');
-		}
+		// ── Campi obbligatori mancanti nelle chart legacy ──
+		if (songJson.notes == null) songJson.notes = [];
+		if (songJson.bpm == null) songJson.bpm = 100;
+		if (songJson.speed == null) songJson.speed = 1;
+		if (songJson.offset == null) songJson.offset = 0;
+		if (songJson.needsVoices == null) songJson.needsVoices = true;
+		if (songJson.player1 == null) songJson.player1 = 'bf';
+		if (songJson.player2 == null) songJson.player2 = 'dad';
 
+		if (songJson.gfVersion == null)
+			songJson.gfVersion = (songJson.player3 != null) ? songJson.player3 : 'gf';
+		if (Reflect.hasField(songJson, 'player3'))
+			Reflect.deleteField(songJson, 'player3');
+
+		// ── Eventi vecchio stile (note con lane < 0) ──
 		if (songJson.events == null)
 		{
 			songJson.events = [];
 			for (secNum in 0...songJson.notes.length)
 			{
 				var sec:SwagSection = songJson.notes[secNum];
+				if (sec.sectionNotes == null)
+					sec.sectionNotes = [];
 
 				var i:Int = 0;
 				var notes:Array<Dynamic> = sec.sectionNotes;
@@ -142,10 +152,8 @@ class Song
 			}
 		}
 
+		// ── Sezioni e note ──
 		var sectionsData:Array<SwagSection> = songJson.notes;
-		if (sectionsData == null)
-			return;
-
 		for (section in sectionsData)
 		{
 			var beats:Null<Float> = cast section.sectionBeats;
@@ -156,15 +164,33 @@ class Song
 					Reflect.deleteField(section, 'lengthInSteps');
 			}
 
+			if (section.sectionNotes == null)
+				section.sectionNotes = [];
+
 			for (note in section.sectionNotes)
 			{
+				// 0.6.3: lane relative a mustHitSection -> psych_v1: 0-3 player, 4-7 opponent (assolute)
 				var gottaHitNote:Bool = (note[1] < 4) ? section.mustHitSection : !section.mustHitSection;
 				note[1] = (note[1] % 4) + (gottaHitNote ? 0 : 4);
 
-				if (!Std.isOfType(note[3], String))
-					note[3] = Note.defaultNoteTypes[note[3]]; // compatibility with Week 7 and 0.1-0.3 psych charts
+				fixLegacyNoteType(note);
 			}
 		}
+	}
+
+	/** Week 7 / 0.1-0.3: il tipo nota puo' essere Int, Bool (altAnim) o assente. */
+	static function fixLegacyNoteType(note:Array<Dynamic>):Void
+	{
+		var t:Dynamic = note[3];
+		if (t == null || Std.isOfType(t, String))
+			return;
+
+		if (Std.isOfType(t, Int) && t >= 0 && t < Note.defaultNoteTypes.length)
+			note[3] = Note.defaultNoteTypes[t];
+		else if (t == true)
+			note[3] = 'Alt Animation';
+		else
+			note[3] = '';
 	}
 
 	public static var chartPath:String;
@@ -189,32 +215,8 @@ class Song
 		#end
 		StageData.loadDirectory(PlayState.SONG);
 
-		// Auto-save psych_v2 -> psych_v1
-		#if MODS_ALLOWED
-		if (PlayState.SONG != null && _lastPath != null && sys.FileSystem.exists(_lastPath))
-		{
-			var needsSave:Bool = false;
-			var conversionMsg:String = '';
-
-			if (lastDetectedSourceFormat != null && lastDetectedSourceFormat.startsWith('psych_v2'))
-			{
-				conversionMsg = 'psych_v2 -> psych_v1';
-				needsSave = true;
-			}
-			else if (lastDetectedSourceFormat == 'non_formatted')
-			{
-				conversionMsg = 'non_formatted -> psych_v1';
-				needsSave = true;
-			}
-
-			if (needsSave)
-			{
-				trace('Saving converted chart: $conversionMsg');
-				PlayState.SONG.format = 'psych_v1';
-				saveChart(PlayState.SONG, _lastPath);
-			}
-		}
-		#end
+		// Le chart convertite restano SOLO in memoria.
+		// La scrittura su disco avviene unicamente dal "Save" esplicito degli editor.
 
 		return PlayState.SONG;
 	}
@@ -396,14 +398,6 @@ class Song
 			trace('Converting chart $nameForError from psych_v2 -> psych_v1 format...');
 			songJson = downgradeFromV2(songJson);
 			songJson.format = 'psych_v1';
-			return songJson;
-		}
-
-		if (fmt == 'non_formatted')
-		{
-			trace('Converting chart $nameForError from non_formatted -> psych_v1 format...');
-			songJson.format = 'psych_v1';
-			convert(songJson);
 			return songJson;
 		}
 
