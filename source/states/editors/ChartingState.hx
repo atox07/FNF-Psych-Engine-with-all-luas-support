@@ -6236,9 +6236,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	// ---------------------------------------------------------------
 	// IMPORT MIDI (File > Import MIDI...)
+	// Two separate MIDIs: one for Dad (lanes 4-7), one for BF (lanes 0-3). Notes are added to the chart.
 	// ---------------------------------------------------------------
 	static inline var MIDI_ROWS:Int = 10;
-	static inline var MIDI_PICKER_W:Int = 640;
+	static inline var MIDI_PICKER_W:Int = 680;
 	static inline var MIDI_ROW_H:Int = 26;
 	static inline var MIDI_SUSTAIN_MIN_STEPS:Float = 4; // notes at least this long (in steps) become sustains
 
@@ -6250,10 +6251,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	var midiEntries:Array<MidiFileEntry> = [];
 	var midiScroll:Int = 0;
-	var midiSelIndex:Int = -1; // index in the list, -1 when the file comes from "Browse..."
+	var midiSelIndex:Int = -1; // index in the list, -1 when the file comes from "Browse..." or nothing is selected
 	var midiSelName:String = null;
 	var midiSelData:MidiData = null;
 	var midiSelError:String = null;
+	var midiLastResult:String = null; // summary of the last import, shown in the footer
+	var midiNotice:String = null; // warnings left by the last import (BPM changes / BPM mismatch)
 
 	var midiRows:Array<FlxText> = [];
 	var midiHoverRect:FlxSprite;
@@ -6264,13 +6267,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var midiBtnBrowse:MidiPickerButton;
 	var midiBtnPrev:MidiPickerButton;
 	var midiBtnNext:MidiPickerButton;
-	var midiBtnImport:MidiPickerButton;
+	var midiBtnDad:MidiPickerButton;
+	var midiBtnBf:MidiPickerButton;
+	var midiBtnClear:MidiPickerButton;
 	var midiBtnCancel:MidiPickerButton;
 	var midiFileRef:openfl.net.FileReference = null;
-	var midiAutoMustHit:Bool = false; // off by default: every section gets mustHitSection = true
-	var midiCheckMark:FlxSprite;
-	var midiCheckX:Float = 0;
-	var midiCheckY:Float = 0;
+	var midiBrowseSide:Int = -1; // side to import to when the file dialog finishes (-1 = just select it)
 
 	function makeMidiRect(x:Float, y:Float, w:Float, h:Float, color:FlxColor, alpha:Float = 1):FlxSprite
 	{
@@ -6307,7 +6309,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	function addMidiPicker()
 	{
-		var panelH:Int = 70 + MIDI_ROWS * MIDI_ROW_H + 128;
+		var panelH:Int = 70 + MIDI_ROWS * MIDI_ROW_H + 136;
 		midiPickerX = Math.round((FlxG.width - MIDI_PICKER_W) / 2);
 		midiPickerY = Math.round((FlxG.height - panelH) / 2);
 
@@ -6339,27 +6341,23 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 
 		var footerY:Float = midiPickerY + 70 + MIDI_ROWS * MIDI_ROW_H;
-		midiInfoText = makeMidiText(midiPickerX + 16, footerY + 8, MIDI_PICKER_W - 32, '', 12, 0xFFE0E0E0);
-		midiWarnText = makeMidiText(midiPickerX + 16, footerY + 30, MIDI_PICKER_W - 32, '', 12, 0xFFFFB020);
+		midiInfoText = makeMidiText(midiPickerX + 16, footerY + 6, MIDI_PICKER_W - 32, '', 12, 0xFFE0E0E0);
+		midiWarnText = makeMidiText(midiPickerX + 16, footerY + 24, MIDI_PICKER_W - 32, '', 12, 0xFFFFB020);
 		midiPickerGroup.add(midiInfoText);
 		midiPickerGroup.add(midiWarnText);
 
-		// "Auto mustHitSection" checkbox (custom, same look as the rest of the picker)
-		midiCheckX = midiPickerX + 16;
-		midiCheckY = footerY + 56;
-		midiPickerGroup.add(makeMidiRect(midiCheckX, midiCheckY, 20, 20, FlxColor.WHITE));
-		midiPickerGroup.add(makeMidiRect(midiCheckX + 2, midiCheckY + 2, 16, 16, 0xFF1E1E26));
-		midiCheckMark = makeMidiRect(midiCheckX + 5, midiCheckY + 5, 10, 10, 0xFF4CD27A);
-		midiPickerGroup.add(midiCheckMark);
-		midiPickerGroup.add(makeMidiText(midiCheckX + 30, midiCheckY + 2, MIDI_PICKER_W - 60,
-			'Auto mustHitSection  (camera follows whoever plays more notes in each section)', 12, 0xFFE0E0E0));
+		// row 1: Browse + paging
+		var row1Y:Float = footerY + 62;
+		midiBtnBrowse = makeMidiButton(midiPickerX + 16, row1Y, 110, 28, 'Browse...');
+		midiBtnPrev = makeMidiButton(midiPickerX + 140, row1Y, 70, 28, '< Prev');
+		midiBtnNext = makeMidiButton(midiPickerX + 216, row1Y, 70, 28, 'Next >');
 
-		var btnY:Float = footerY + 88;
-		midiBtnBrowse = makeMidiButton(midiPickerX + 16, btnY, 110, 28, 'Browse...');
-		midiBtnPrev = makeMidiButton(midiPickerX + 140, btnY, 70, 28, '< Prev');
-		midiBtnNext = makeMidiButton(midiPickerX + 216, btnY, 70, 28, 'Next >');
-		midiBtnCancel = makeMidiButton(midiPickerX + MIDI_PICKER_W - 16 - 90, btnY, 90, 28, 'Cancel');
-		midiBtnImport = makeMidiButton(midiPickerX + MIDI_PICKER_W - 16 - 90 - 8 - 110, btnY, 110, 28, 'Import');
+		// row 2: import / clear / cancel
+		var row2Y:Float = footerY + 98;
+		midiBtnDad = makeMidiButton(midiPickerX + 16, row2Y, 140, 28, 'Import as Dad');
+		midiBtnBf = makeMidiButton(midiPickerX + 164, row2Y, 140, 28, 'Import as BF');
+		midiBtnClear = makeMidiButton(midiPickerX + 312, row2Y, 120, 28, 'Clear Chart');
+		midiBtnCancel = makeMidiButton(midiPickerX + MIDI_PICKER_W - 16 - 90, row2Y, 90, 28, 'Cancel');
 
 		midiPickerGroup.visible = false;
 		midiPickerGroup.active = false;
@@ -6412,6 +6410,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		midiSelName = null;
 		midiSelData = null;
 		midiSelError = null;
+		midiLastResult = null;
+		midiNotice = null;
+		midiBrowseSide = -1;
 
 		// group.visible overrides every member, so show it first and let refresh hide what is not needed
 		midiPickerGroup.visible = true;
@@ -6425,6 +6426,14 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	{
 		midiPickerGroup.visible = false;
 		midiPickerOpen = false;
+
+		// The toast can't animate while the picker is open, so the summary of the imports is shown now
+		if (midiLastResult != null)
+		{
+			showOutput(midiLastResult + (midiNotice != null ? '\n' + midiNotice : ''), midiNotice != null);
+			midiLastResult = null;
+			midiNotice = null;
+		}
 	}
 
 	function refreshMidiPicker()
@@ -6439,8 +6448,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			if (idx < midiEntries.length)
 			{
 				var label:String = midiEntries[idx].name;
-				if (label.length > 62)
-					label = '...' + label.substr(label.length - 59);
+				if (label.length > 66)
+					label = '...' + label.substr(label.length - 63);
 				row.text = label;
 				row.color = FlxColor.WHITE;
 				row.visible = true;
@@ -6460,27 +6469,37 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if (midiSelRect.visible)
 			midiSelRect.y = midiPickerY + 70 + selRow * MIDI_ROW_H;
 
-		midiSubText.text = 'Click a file to select it, click again (or press ENTER) to import.   ${midiEntries.length} found.';
+		midiSubText.text = 'Pick a file, then Import as Dad / BF (no selection = file dialog).   ${midiEntries.length} found.';
 
-		if (midiSelName == null)
-			midiInfoText.text = '';
-		else if (midiSelData != null)
+		// info line: selected file, or summary of the last import
+		if (midiSelName != null && midiSelData != null)
 		{
 			var bpmStr:String = Std.string(Math.round(midiSelData.bpm * 100) / 100);
 			midiInfoText.text = 'Selected: $midiSelName   ($bpmStr BPM, ${midiSelData.notes.length} notes)';
 		}
-		else
+		else if (midiSelName != null)
 			midiInfoText.text = 'Selected: $midiSelName';
+		else if (midiLastResult != null)
+			midiInfoText.text = midiLastResult;
+		else
+			midiInfoText.text = '';
 
+		// warning area (orange), errors in red
 		if (midiSelError != null)
 		{
 			midiWarnText.text = '[!] $midiSelError';
 			midiWarnText.color = 0xFFFF6060;
 			midiWarnText.visible = true;
 		}
-		else if (midiSelData != null && midiSelData.tempoChanges)
+		else if (midiSelData != null)
 		{
-			midiWarnText.text = '[!] This MIDI contains BPM changes. You may need to adjust the chart manually.';
+			midiWarnText.text = midiSelData.tempoChanges ? '[!] This MIDI contains BPM changes. You may need to adjust the chart manually.' : '';
+			midiWarnText.color = 0xFFFFB020;
+			midiWarnText.visible = midiSelData.tempoChanges;
+		}
+		else if (midiNotice != null)
+		{
+			midiWarnText.text = midiNotice;
 			midiWarnText.color = 0xFFFFB020;
 			midiWarnText.visible = true;
 		}
@@ -6491,8 +6510,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var showNext:Bool = midiScroll < maxScroll;
 		midiBtnPrev.bg.visible = midiBtnPrev.label.visible = showPrev;
 		midiBtnNext.bg.visible = midiBtnNext.label.visible = showNext;
-		midiBtnImport.label.alpha = (midiSelData != null) ? 1 : 0.4;
-		midiCheckMark.visible = midiAutoMustHit;
 	}
 
 	function midiHit(x:Float, y:Float, w:Float, h:Float):Bool
@@ -6552,23 +6569,25 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		refreshMidiPicker();
 	}
 
-	function importSelectedMidi()
+	// "Import as Dad" (side 1) / "Import as BF" (side 0):
+	// uses the selected file, or opens the file dialog when nothing is selected.
+	function importMidiAs(side:Int)
 	{
-		if (midiSelData == null)
+		if (midiSelData != null)
 		{
-			FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
-			return;
+			var data:MidiData = midiSelData;
+			var name:String = midiSelName;
+			midiSelIndex = -1;
+			midiSelName = null;
+			midiSelData = null;
+			midiSelError = null;
+			addMidiNotes(data, name, side);
 		}
-
-		var data:MidiData = midiSelData;
-		var name:String = midiSelName;
-		closeMidiPicker();
-
-		var func:Void->Void = function() applyMidiImport(data, name);
-		if (!ignoreProgressCheckBox.checked)
-			openSubState(new Prompt('Warning: This will replace all notes\nof the current chart.', func));
 		else
-			func();
+		{
+			midiBrowseSide = side;
+			browseMidiFile();
+		}
 	}
 
 	function updateMidiPicker()
@@ -6576,12 +6595,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if (FlxG.keys.justPressed.ESCAPE)
 		{
 			closeMidiPicker();
-			return;
-		}
-
-		if (FlxG.keys.justPressed.ENTER)
-		{
-			importSelectedMidi();
 			return;
 		}
 
@@ -6607,16 +6620,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var clicked:Bool = FlxG.mouse.justPressed && !midiPickerIgnoreClick;
 		midiPickerIgnoreClick = false;
 
-		// checkbox
-		if (clicked && midiHit(midiCheckX, midiCheckY, MIDI_PICKER_W - 32, 22))
-		{
-			midiAutoMustHit = !midiAutoMustHit;
-			refreshMidiPicker();
-			clicked = false;
-		}
-
 		// footer buttons
-		var buttons:Array<MidiPickerButton> = [midiBtnBrowse, midiBtnPrev, midiBtnNext, midiBtnImport, midiBtnCancel];
+		var buttons:Array<MidiPickerButton> = [
+			midiBtnBrowse, midiBtnPrev, midiBtnNext, midiBtnDad, midiBtnBf, midiBtnClear, midiBtnCancel
+		];
 		var hoverBtn:MidiPickerButton = null;
 		for (b in buttons)
 		{
@@ -6628,16 +6635,20 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if (clicked && hoverBtn != null)
 		{
 			if (hoverBtn == midiBtnBrowse)
+			{
+				midiBrowseSide = -1;
 				browseMidiFile();
+			}
 			else if (hoverBtn == midiBtnPrev)
 				midiScroll -= MIDI_ROWS;
 			else if (hoverBtn == midiBtnNext)
 				midiScroll += MIDI_ROWS;
-			else if (hoverBtn == midiBtnImport)
-			{
-				importSelectedMidi();
-				return;
-			}
+			else if (hoverBtn == midiBtnDad)
+				importMidiAs(1);
+			else if (hoverBtn == midiBtnBf)
+				importMidiAs(0);
+			else if (hoverBtn == midiBtnClear)
+				clearChartNotes();
 			else if (hoverBtn == midiBtnCancel)
 			{
 				closeMidiPicker();
@@ -6651,7 +6662,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if (midiScroll != oldScroll)
 			refreshMidiPicker();
 
-		// hover + click on list rows
+		// hover + click on list rows (a click only selects the file)
 		midiHoverRect.visible = false;
 		for (i in 0...MIDI_ROWS)
 		{
@@ -6664,13 +6675,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			{
 				midiHoverRect.y = rowY;
 				midiHoverRect.visible = (idx != midiSelIndex);
-				if (clicked)
+				if (clicked && idx != midiSelIndex)
 				{
-					if (idx == midiSelIndex)
-					{
-						importSelectedMidi();
-						return;
-					}
 					FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
 					selectMidiEntry(idx);
 				}
@@ -6679,7 +6685,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 	}
 
-	// "Browse..." (system file dialog)
+	// "Browse..." and the file dialog of the Import buttons (system file dialog)
 	function browseMidiFile()
 	{
 		if (midiFileRef != null)
@@ -6695,6 +6701,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		catch (e:Dynamic)
 		{
 			midiFileRef = null;
+			midiBrowseSide = -1;
 			FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
 			trace('Could not open the file browser: $e');
 		}
@@ -6715,14 +6722,17 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	function onMidiBrowseCancel(_):Void
 	{
 		midiFileRef = null;
+		midiBrowseSide = -1;
 	}
 
 	function onMidiBrowseError(_):Void
 	{
 		midiFileRef = null;
+		midiBrowseSide = -1;
 		if (midiPickerOpen)
 		{
 			midiSelIndex = -1;
+			midiSelName = null;
 			midiSelData = null;
 			midiSelError = 'Could not read the selected file.';
 			refreshMidiPicker();
@@ -6736,7 +6746,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		var name:String = midiFileRef.name;
 		var data:openfl.utils.ByteArray = midiFileRef.data;
+		var side:Int = midiBrowseSide;
 		midiFileRef = null;
+		midiBrowseSide = -1;
 		if (data == null || !midiPickerOpen)
 			return;
 
@@ -6745,7 +6757,15 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		for (i in 0...len)
 			bytes.set(i, data[i]);
 
-		selectMidiBytes(name + ' (browsed)', -1, bytes);
+		if (side >= 0)
+		{
+			// opened by "Import as Dad/BF": import right away if the file is valid
+			selectMidiBytes(name, -1, bytes);
+			if (midiSelData != null)
+				importMidiAs(side);
+		}
+		else
+			selectMidiBytes(name + ' (browsed)', -1, bytes);
 	}
 
 	// ---------------------------------------------------------------
@@ -6920,53 +6940,130 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	// ---------------------------------------------------------------
 	// MIDI -> chart
 	// ---------------------------------------------------------------
-	// Pitch -> lane, in ANY octave: C = left, D = down, E = up, F = right. Everything else returns -1 (skipped).
+	// Pitch -> lane, in ANY octave. Every one of the 12 notes is mapped:
+	// C, C#, G, G# -> left | D, D#, A, A# -> down | E, B -> up | F, F# -> right
 	function midiPitchToLane(pitch:Int):Int
 	{
 		return switch (pitch % 12)
 		{
-			case 0: 0; // C
-			case 2: 1; // D
-			case 4: 2; // E
-			case 5: 3; // F
-			default: -1;
+			case 0: 0; // C  -> left
+			case 1: 0; // C# -> left
+			case 2: 1; // D  -> down
+			case 3: 1; // D# -> down
+			case 4: 2; // E  -> up
+			case 5: 3; // F  -> right
+			case 6: 3; // F# -> right
+			case 7: 0; // G  -> left
+			case 8: 0; // G# -> left
+			case 9: 1; // A  -> down
+			case 10: 1; // A# -> down
+			case 11: 2; // B  -> up
+			default: 0;
 		}
 	}
 
-	function applyMidiImport(midi:MidiData, name:String)
+	function reloadChartAfterMidi()
 	{
-		// Only the first BPM of the MIDI is used for the whole song
-		var bpm:Float = FlxMath.bound(Math.round(midi.bpm * 1000) / 1000, 1, MAX_EDITOR_BPM);
+		loadChart(PlayState.SONG);
+		reloadNotesDropdowns();
+		prepareReload();
+	}
+
+	// "Clear Chart": removes every note (events and sections stay)
+	function clearChartNotes()
+	{
+		var func:Void->Void = function()
+		{
+			for (sec in PlayState.SONG.notes)
+				sec.sectionNotes = [];
+
+			reloadChartAfterMidi();
+			midiLastResult = 'Chart cleared. The next import sets the chart BPM again.';
+			midiNotice = null;
+			refreshMidiPicker();
+		};
+
+		if (!ignoreProgressCheckBox.checked)
+		{
+			midiPickerIgnoreClick = true; // the click on the Prompt must not reach the picker
+			openSubState(new Prompt('Warning: This will delete ALL notes\nof the current chart.', func));
+		}
+		else
+			func();
+	}
+
+	/**
+	 * Adds the notes of a MIDI to the chart that is already open (nothing is replaced).
+	 * side 1 = Dad -> lanes 4-7, side 0 = BF -> lanes 0-3. Pitch only decides the lane.
+	 * Both MIDIs start at tick 0, so they line up with each other (no extra offset on either).
+	 */
+	function addMidiNotes(midi:MidiData, name:String, side:Int)
+	{
+		var sideName:String = (side == 1) ? 'Dad' : 'BF';
+		var laneBase:Int = (side == 1) ? 4 : 0;
+		var shortName:String = (name.length > 28) ? '...' + name.substr(name.length - 25) : name;
+
+		var chartHasNotes:Bool = false;
+		for (sec in PlayState.SONG.notes)
+			if (sec.sectionNotes != null && sec.sectionNotes.length > 0)
+			{
+				chartHasNotes = true;
+				break;
+			}
+
+		// BPM: the first MIDI imported into an empty chart sets it, the following ones follow the chart BPM
+		var notices:Array<String> = [];
+		if (midi.tempoChanges)
+			notices.push('[!] This MIDI contains BPM changes. You may need to adjust the chart manually.');
+
+		var bpm:Float;
+		var setBpm:Bool = false;
+		if (!chartHasNotes)
+		{
+			bpm = FlxMath.bound(Math.round(midi.bpm * 1000) / 1000, 1, MAX_EDITOR_BPM);
+			setBpm = true;
+		}
+		else
+		{
+			bpm = PlayState.SONG.bpm;
+			if (Math.abs(midi.bpm - bpm) > 0.05)
+				notices.push('[!] BPM mismatch: MIDI is ${Math.round(midi.bpm * 100) / 100}, chart is ${Math.round(bpm * 100) / 100}. Timing follows the chart BPM.');
+		}
 		var stepMs:Float = Conductor.calculateCrochet(bpm) / 4;
 
-		// Channel decides the side (channel 1 = Dad, the rest = BF). Pitch decides ONLY the lane.
-		var entries:Array<{sec:Int, side:Int, lane:Int, time:Float, sustain:Float}> = [];
+		// notes already in the chart (so importing the same file twice does not stack notes)
+		var existing:Map<String, Bool> = new Map();
+		for (sec in PlayState.SONG.notes)
+			if (sec.sectionNotes != null)
+				for (n in sec.sectionNotes)
+					existing.set(Std.int(n[1]) + '_' + Math.round(n[0]), true);
+
+		var entries:Array<{sec:Int, data:Int, time:Float, sustain:Float}> = [];
 		var seen:Map<String, Bool> = new Map();
 		var maxSec:Int = 0;
-		var skipped:Int = 0;
+		var duplicates:Int = 0;
 		for (n in midi.notes)
 		{
 			var lane:Int = midiPitchToLane(n.pitch);
-			if (lane < 0) // not C/D/E/F
+
+			var data:Int = lane + laneBase;
+			var step:Float = n.tick / midi.division * 4;
+			var time:Float = step * stepMs;
+
+			var key:String = data + '_' + n.tick;
+			if (seen.exists(key) || existing.exists(data + '_' + Math.round(time))) // same lane + same time
 			{
-				skipped++;
+				duplicates++;
 				continue;
 			}
-
-			var side:Int = (n.channel == 0) ? 1 : 0; // 1 = Dad, 0 = BF
-			var key:String = side + '_' + lane + '_' + n.tick;
-			if (seen.exists(key)) // same side, lane and time (e.g. C4 and C5 together)
-				continue;
 			seen.set(key, true);
 
-			var step:Float = n.tick / midi.division * 4;
 			var sec:Int = Std.int(step / 16);
 			var durSteps:Float = (n.endTick - n.tick) / midi.division * 4;
 			entries.push({
 				sec: sec,
-				side: side,
-				lane: lane,
-				time: step * stepMs,
+				data: data,
+				time: time,
 				sustain: (durSteps >= MIDI_SUSTAIN_MIN_STEPS) ? durSteps * stepMs : 0
 			});
 			if (sec > maxSec)
@@ -6975,61 +7072,58 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		if (entries.length < 1)
 		{
-			showOutput('No C/D/E/F notes found in this MIDI.', true);
+			midiLastResult = 'Nothing imported from $shortName: no new notes.';
+			midiNotice = null;
+			refreshMidiPicker();
 			return;
 		}
 
-		// mustHitSection: always true (camera on BF), unless "Auto mustHitSection" is on
-		var mustHit:Array<Bool> = [for (_ in 0...maxSec + 1) true];
-		if (midiAutoMustHit)
-		{
-			var bfCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
-			var dadCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
-			for (e in entries)
-			{
-				if (e.side == 1)
-					dadCount[e.sec]++;
-				else
-					bfCount[e.sec]++;
-			}
+		if (setBpm)
+			PlayState.SONG.bpm = bpm;
 
-			var lastMustHit:Bool = true;
-			for (i in 0...maxSec + 1)
-			{
-				if (bfCount[i] + dadCount[i] > 0)
-					lastMustHit = bfCount[i] >= dadCount[i];
-				mustHit[i] = lastMustHit;
-			}
-		}
+		// more sections if the MIDI is longer than the chart
+		var songNotes = PlayState.SONG.notes;
+		var lastMustHit:Bool = (songNotes.length > 0) ? (songNotes[songNotes.length - 1].mustHitSection == true) : true;
+		while (songNotes.length <= maxSec)
+			songNotes.push(ChartEditorTiming.createBlankSection(bpm, lastMustHit));
 
-		PlayState.SONG.bpm = bpm;
-		PlayState.SONG.notes = [for (i in 0...maxSec + 1) ChartEditorTiming.createBlankSection(bpm, mustHit[i])];
-		for (i in 0...maxSec + 1)
-		{
-			PlayState.SONG.notes[i].mustHitSection = mustHit[i];
-			PlayState.SONG.notes[i].sectionNotes = [];
-		}
-
-		var dadTotal:Int = 0;
-		var bfTotal:Int = 0;
+		var touched:Map<Int, Bool> = new Map();
 		for (e in entries)
 		{
-			// data 0-3 is the side that must hit in that section, 4-7 the other one
-			var data:Int = ((e.side == 1) == mustHit[e.sec]) ? e.lane + 4 : e.lane;
-			PlayState.SONG.notes[e.sec].sectionNotes.push([e.time, data, e.sustain]);
-			if (e.side == 1)
-				dadTotal++;
-			else
-				bfTotal++;
+			if (songNotes[e.sec].sectionNotes == null)
+				songNotes[e.sec].sectionNotes = [];
+			songNotes[e.sec].sectionNotes.push([e.time, e.data, e.sustain]);
+			touched.set(e.sec, true);
 		}
 
-		loadChart(PlayState.SONG);
-		reloadNotesDropdowns();
-		prepareReload();
+		// mustHitSection (camera): BF notes in a section -> true. Dad notes -> false, unless BF also plays there.
+		// Same result whichever MIDI is imported first.
+		for (secNum in touched.keys())
+		{
+			var section = songNotes[secNum];
+			if (side == 0)
+				section.mustHitSection = true;
+			else
+			{
+				var bfPlays:Bool = false;
+				for (n in section.sectionNotes)
+					if (Std.int(n[1]) < 4)
+					{
+						bfPlays = true;
+						break;
+					}
+				if (!bfPlays)
+					section.mustHitSection = false;
+			}
+		}
 
-		warnIfHighBPM(bpm, 'song');
-		var skippedText:String = (skipped > 0) ? ', $skipped non C/D/E/F skipped' : '';
-		showOutput('Imported "$name": ${entries.length} notes (Dad $dadTotal / BF $bfTotal)$skippedText, $bpm BPM.');
+		reloadChartAfterMidi();
+
+		midiLastResult = '$sideName: added ${entries.length} notes from $shortName'
+			+ (duplicates > 0 ? ', $duplicates duplicates ignored' : '')
+			+ '.';
+		midiNotice = (notices.length > 0) ? notices.join('\n') : null;
+		refreshMidiPicker();
 	}
 
 	#if desktop
