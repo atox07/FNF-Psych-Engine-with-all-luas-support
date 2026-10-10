@@ -162,28 +162,139 @@ class Mods
 		return foldersToCheck;
 	}
 
+	/**
+	 * Metadata file names, in priority order.
+	 *  - mod.json  : formato nativo del fork
+	 *  - pack.json : Psych Engine 0.6.3 / 1.0.x
+	 *  - meta.json : formato alternativo (alias dei campi mappati in normalizePack)
+	 * I file NON vengono mai riscritti: la conversione avviene solo in memoria.
+	 */
+	static final PACK_FILE_CANDIDATES:Array<String> = ['mod.json', 'pack.json', 'meta.json'];
+
 	public static function getPack(?folder:String = null):Dynamic
 	{
 		#if MODS_ALLOWED
 		if (folder == null)
 			folder = Mods.currentModDirectory;
 
-		var path = Paths.mods(folder + '/pack.json');
-		if (AssetLoader.exists(path, TEXT))
+		for (fileName in PACK_FILE_CANDIDATES)
 		{
+			var path = Paths.mods(folder + '/' + fileName);
+			if (!AssetLoader.exists(path, TEXT))
+				continue;
+
 			try
 			{
 				var rawJson:String = AssetLoader.loadText(path);
 				if (rawJson != null && rawJson.length > 0)
-					return tjson.TJSON.parse(rawJson);
+				{
+					var pack:Dynamic = normalizePack(tjson.TJSON.parse(rawJson));
+					if (pack != null)
+						return pack;
+				}
 			}
 			catch (e:Dynamic)
 			{
-				trace(e);
+				// File corrotto: prova con il prossimo candidato
+				trace('[Mods] Failed to read $fileName for "$folder": $e');
 			}
 		}
 		#end
 		return null;
+	}
+
+	/** Porta i metadati legacy/alternativi allo schema standard (name, description, color, restart, runsGlobally). */
+	static function normalizePack(pack:Dynamic):Dynamic
+	{
+		if (pack == null || Type.typeof(pack) != TObject)
+			return null;
+
+		copyAlias(pack, 'name', ['title', 'mod_name', 'modName']);
+		copyAlias(pack, 'description', ['desc', 'about']);
+		copyAlias(pack, 'restart', ['restartRequired', 'needsRestart']);
+		copyAlias(pack, 'runsGlobally', ['global', 'runs_globally', 'isGlobal']);
+		copyAlias(pack, 'color', ['colour']);
+
+		// color: accetta [r,g,b], "#RRGGBB", "0xAARRGGBB", numero. Se non valido lo rimuove (il menu usa il suo default)
+		if (Reflect.hasField(pack, 'color'))
+		{
+			var color:Dynamic = Reflect.field(pack, 'color');
+			if (Std.isOfType(color, Array))
+			{
+				var arr:Array<Dynamic> = cast color;
+				if (arr.length < 3)
+					Reflect.deleteField(pack, 'color');
+			}
+			else
+			{
+				var rgb:Array<Int> = parseColorToRGB(color);
+				if (rgb != null)
+					Reflect.setField(pack, 'color', rgb);
+				else
+					Reflect.deleteField(pack, 'color');
+			}
+		}
+
+		for (field in ['restart', 'runsGlobally'])
+		{
+			var value:Dynamic = Reflect.field(pack, field);
+			if (value != null && !Std.isOfType(value, Bool))
+				Reflect.setField(pack, field, coerceBool(value));
+		}
+		return pack;
+	}
+
+	static function copyAlias(obj:Dynamic, target:String, aliases:Array<String>):Void
+	{
+		if (Reflect.field(obj, target) != null)
+			return;
+
+		for (alias in aliases)
+		{
+			var value:Dynamic = Reflect.field(obj, alias);
+			if (value != null)
+			{
+				Reflect.setField(obj, target, value);
+				return;
+			}
+		}
+	}
+
+	static function parseColorToRGB(value:Dynamic):Array<Int>
+	{
+		var rgb:Int = 0;
+		if (Std.isOfType(value, Int))
+			rgb = value;
+		else if (Std.isOfType(value, String))
+		{
+			var hex:String = StringTools.trim(cast(value, String)).toLowerCase();
+			if (hex.startsWith('#'))
+				hex = hex.substr(1);
+			else if (hex.startsWith('0x'))
+				hex = hex.substr(2);
+			if (hex.length == 8) // AARRGGBB -> RRGGBB
+				hex = hex.substr(2);
+			if (hex.length != 6)
+				return null;
+
+			var parsed:Null<Int> = Std.parseInt('0x' + hex);
+			if (parsed == null)
+				return null;
+			rgb = parsed;
+		}
+		else
+			return null;
+
+		return [(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF];
+	}
+
+	static function coerceBool(value:Dynamic):Bool
+	{
+		if (Std.isOfType(value, Bool))
+			return cast value;
+
+		var text:String = Std.string(value).trim().toLowerCase();
+		return text == 'true' || text == '1' || text == 'yes' || text == 'on';
 	}
 
 	public static function applyWindowBrand(?folder:String = null):Void
