@@ -13,6 +13,9 @@ import objects.Bar;
 import states.stages.StageWeek1 as BackgroundStage;
 import states.editors.content.Prompt;
 import states.editors.content.PsychJsonPrinter;
+#if MODS_ALLOWED
+import sys.io.File;
+#end
 
 class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler.PsychUIEvent
 {
@@ -157,6 +160,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		FlxG.camera.zoom = 1;
 
 		makeUIMenu();
+		addXmlPicker();
 
 		updatePointerPos();
 		updateHealthBar();
@@ -685,6 +689,13 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 			updateHealthBar();
 		});
 
+		var animsFromXml:PsychUIButton = new PsychUIButton(reloadImage.x, decideIconColor.y + 33, "Anims from XML", function()
+		{
+			openXmlPicker();
+		});
+		animsFromXml.normalStyle.bgColor = FlxColor.fromRGB(40, 140, 70);
+		animsFromXml.normalStyle.textColor = FlxColor.WHITE;
+
 		healthIconInputText = new PsychUIInputText(15, imageInputText.y + 35, 75, healthIcon.getCharacter(), 8);
 
 		animatedIconCheckBox = new PsychUICheckBox(healthIconInputText.x + 85, healthIconInputText.y + 2, "Animated Icon", 120);
@@ -749,6 +760,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		tab_group.add(imageInputText);
 		tab_group.add(reloadImage);
 		tab_group.add(decideIconColor);
+		tab_group.add(animsFromXml);
 		tab_group.add(healthIconInputText);
 		tab_group.add(animatedIconCheckBox);
 		tab_group.add(vocalsInputText);
@@ -977,6 +989,12 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
+
+		if (xmlPickerOpen)
+		{
+			updateXmlPicker();
+			return;
+		}
 
 		if (PsychUIInputText.focusOn != null)
 		{
@@ -1287,6 +1305,9 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 
 	function isMouseOverUI():Bool
 	{
+		if (xmlPickerOpen)
+			return true;
+
 		var mouseX = FlxG.mouse.screenX;
 		var mouseY = FlxG.mouse.screenY;
 
@@ -1524,6 +1545,486 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		animationDropDown.list = animList;
 	}
 
+	// ---------------------------------------------------------------
+	// AUTO-GENERATE ANIMATIONS FROM A SPARROW XML
+	// ---------------------------------------------------------------
+	static final XML_PICKER_ROWS:Int = 12;
+	static final XML_PICKER_W:Int = 560;
+	static final XML_PICKER_ROW_H:Int = 26;
+
+	var xmlPickerGroup:FlxSpriteGroup;
+	var xmlPickerOpen:Bool = false;
+	var xmlPickerIgnoreClick:Bool = false;
+	var xmlPickerEntries:Array<CharacterSheetEntry> = [];
+	var xmlPickerScroll:Int = 0;
+	var xmlPickerRows:Array<FlxText> = [];
+	var xmlPickerHover:FlxSprite;
+	var xmlPickerFooter:FlxText;
+	var xmlPickerPrev:FlxText;
+	var xmlPickerNext:FlxText;
+	var xmlPickerX:Float = 0;
+	var xmlPickerY:Float = 0;
+
+	function makePickerRect(x:Float, y:Float, w:Float, h:Float, color:FlxColor, alpha:Float = 1):FlxSprite
+	{
+		var spr:FlxSprite = new FlxSprite(x, y).makeGraphic(1, 1, color);
+		spr.scale.set(w, h);
+		spr.updateHitbox();
+		spr.alpha = alpha;
+		spr.scrollFactor.set();
+		spr.active = false;
+		return spr;
+	}
+
+	function makePickerText(x:Float, y:Float, w:Float, txt:String, size:Int = 16, align:flixel.text.FlxText.FlxTextAlign = LEFT):FlxText
+	{
+		var t:FlxText = new FlxText(x, y, w, txt, size);
+		t.setFormat(null, size, FlxColor.WHITE, align, OUTLINE_FAST, FlxColor.BLACK);
+		t.borderSize = 1;
+		t.scrollFactor.set();
+		t.wordWrap = false;
+		return t;
+	}
+
+	function addXmlPicker()
+	{
+		var panelH:Int = 70 + XML_PICKER_ROWS * XML_PICKER_ROW_H + 50;
+		xmlPickerX = Math.round((FlxG.width - XML_PICKER_W) / 2) - 120;
+		if (xmlPickerX < 10)
+			xmlPickerX = 10;
+		xmlPickerY = Math.round((FlxG.height - panelH) / 2);
+
+		xmlPickerGroup = new FlxSpriteGroup();
+		xmlPickerGroup.scrollFactor.set();
+		xmlPickerGroup.cameras = [camHUD];
+
+		xmlPickerGroup.add(makePickerRect(0, 0, FlxG.width, FlxG.height, FlxColor.BLACK, 0.65));
+		xmlPickerGroup.add(makePickerRect(xmlPickerX - 2, xmlPickerY - 2, XML_PICKER_W + 4, panelH + 4, FlxColor.WHITE, 0.9));
+		xmlPickerGroup.add(makePickerRect(xmlPickerX, xmlPickerY, XML_PICKER_W, panelH, 0xFF1E1E26));
+
+		xmlPickerGroup.add(makePickerText(xmlPickerX + 16, xmlPickerY + 12, XML_PICKER_W - 32, 'Choose a spritesheet (images/characters)', 18));
+		xmlPickerGroup.add(makePickerText(xmlPickerX + 16, xmlPickerY + 38, XML_PICKER_W - 32, 'Animations get generated from the XML and replace the current ones.', 12));
+
+		xmlPickerHover = makePickerRect(xmlPickerX + 8, xmlPickerY + 70, XML_PICKER_W - 16, XML_PICKER_ROW_H, 0xFF3A5A9A, 0.9);
+		xmlPickerHover.visible = false;
+		xmlPickerGroup.add(xmlPickerHover);
+
+		xmlPickerRows = [];
+		for (i in 0...XML_PICKER_ROWS)
+		{
+			var row:FlxText = makePickerText(xmlPickerX + 18, xmlPickerY + 72 + i * XML_PICKER_ROW_H, XML_PICKER_W - 36, '');
+			xmlPickerRows.push(row);
+			xmlPickerGroup.add(row);
+		}
+
+		var footerY:Float = xmlPickerY + panelH - 34;
+		xmlPickerPrev = makePickerText(xmlPickerX + 16, footerY, 80, '< Prev');
+		xmlPickerNext = makePickerText(xmlPickerX + XML_PICKER_W - 96, footerY, 80, 'Next >', 16, RIGHT);
+		xmlPickerFooter = makePickerText(xmlPickerX + 100, footerY + 2, XML_PICKER_W - 200, '', 12, CENTER);
+		xmlPickerGroup.add(xmlPickerPrev);
+		xmlPickerGroup.add(xmlPickerNext);
+		xmlPickerGroup.add(xmlPickerFooter);
+
+		xmlPickerGroup.visible = false;
+		xmlPickerGroup.active = false;
+		add(xmlPickerGroup);
+	}
+
+	function characterJsonExists(name:String):Bool
+	{
+		var path:String = Paths.getPath('characters/$name.json', TEXT, null, true);
+		#if MODS_ALLOWED
+		return FileSystem.exists(path);
+		#else
+		return Assets.exists(path);
+		#end
+	}
+
+	function sheetFileExists(path:String):Bool
+	{
+		#if MODS_ALLOWED
+		return FileSystem.exists(path);
+		#else
+		return Assets.exists(path);
+		#end
+	}
+
+	function scanCharacterSheets():Array<CharacterSheetEntry>
+	{
+		var found:Map<String, CharacterSheetEntry> = new Map();
+		// Same lookup order Psych uses: base assets, global mods, mods root, current mod (later ones override).
+		var folders:Array<String> = Mods.directoriesWithFile(Paths.getSharedPath(), 'images/characters/');
+		for (folder in folders)
+			scanSheetFolder(folder, 'characters/', found, 0);
+
+		var result:Array<CharacterSheetEntry> = [for (e in found) e];
+		// Sprites without a character json first, then the already-made ones. Alphabetical inside each group.
+		result.sort(function(a:CharacterSheetEntry, b:CharacterSheetEntry):Int
+		{
+			if (a.hasJson != b.hasJson)
+				return a.hasJson ? 1 : -1;
+			var ak:String = a.key.toLowerCase();
+			var bk:String = b.key.toLowerCase();
+			return ak < bk ? -1 : (ak > bk ? 1 : 0);
+		});
+		return result;
+	}
+
+	function scanSheetFolder(folder:String, keyPrefix:String, found:Map<String, CharacterSheetEntry>, depth:Int)
+	{
+		for (file in Paths.readDirectory(folder))
+		{
+			#if sys
+			if (FileSystem.isDirectory(folder + file))
+			{
+				if (depth < 2)
+					scanSheetFolder(folder + file + '/', keyPrefix + file + '/', found, depth + 1);
+				continue;
+			}
+			#end
+
+			if (!file.toLowerCase().endsWith('.xml'))
+				continue;
+
+			var baseName:String = file.substr(0, file.length - 4);
+			if (!sheetFileExists(folder + baseName + '.png'))
+				continue;
+
+			found.set(keyPrefix + baseName, {
+				key: keyPrefix + baseName,
+				xmlPath: folder + file,
+				hasJson: characterJsonExists(baseName)
+			});
+		}
+	}
+
+	function openXmlPicker()
+	{
+		xmlPickerEntries = scanCharacterSheets();
+		xmlPickerScroll = 0;
+
+		// group.visible overrides every member, so show it first and let refresh hide the unused rows
+		xmlPickerGroup.visible = true;
+		refreshXmlPicker();
+		xmlPickerOpen = true;
+		xmlPickerIgnoreClick = true;
+		UI_box.active = false;
+		UI_characterbox.active = false;
+	}
+
+	function closeXmlPicker()
+	{
+		xmlPickerGroup.visible = false;
+		xmlPickerOpen = false;
+		UI_box.active = true;
+		UI_characterbox.active = true;
+	}
+
+	function refreshXmlPicker()
+	{
+		var maxScroll:Int = Std.int(Math.max(0, xmlPickerEntries.length - XML_PICKER_ROWS));
+		xmlPickerScroll = Std.int(FlxMath.bound(xmlPickerScroll, 0, maxScroll));
+
+		for (i in 0...XML_PICKER_ROWS)
+		{
+			var row:FlxText = xmlPickerRows[i];
+			var idx:Int = xmlPickerScroll + i;
+			if (idx < xmlPickerEntries.length)
+			{
+				var e:CharacterSheetEntry = xmlPickerEntries[idx];
+				var label:String = e.key;
+				if (label.length > 46)
+					label = '...' + label.substr(label.length - 43);
+				row.text = e.hasJson ? '$label   [json exists]' : label;
+				row.color = e.hasJson ? 0xFF8C8C8C : FlxColor.WHITE;
+				row.visible = true;
+			}
+			else if (i == 0 && xmlPickerEntries.length == 0)
+			{
+				row.text = 'No .xml + .png pairs found in images/characters/';
+				row.color = 0xFFFF8080;
+				row.visible = true;
+			}
+			else
+				row.visible = false;
+		}
+
+		if (xmlPickerEntries.length > 0)
+		{
+			var last:Int = Std.int(Math.min(xmlPickerScroll + XML_PICKER_ROWS, xmlPickerEntries.length));
+			xmlPickerFooter.text = '${xmlPickerScroll + 1}-$last of ${xmlPickerEntries.length}   |   ESC to cancel';
+		}
+		else
+			xmlPickerFooter.text = 'ESC to cancel';
+
+		xmlPickerPrev.visible = xmlPickerScroll > 0;
+		xmlPickerNext.visible = xmlPickerScroll < maxScroll;
+	}
+
+	function pickerHit(x:Float, y:Float, w:Float, h:Float):Bool
+	{
+		var mx:Float = FlxG.mouse.screenX;
+		var my:Float = FlxG.mouse.screenY;
+		return mx >= x && mx <= x + w && my >= y && my <= y + h;
+	}
+
+	function updateXmlPicker()
+	{
+		ClientPrefs.toggleVolumeKeys(false);
+
+		if (FlxG.keys.justPressed.ESCAPE || touchPad.buttonB.justPressed)
+		{
+			closeXmlPicker();
+			return;
+		}
+
+		var maxScroll:Int = Std.int(Math.max(0, xmlPickerEntries.length - XML_PICKER_ROWS));
+		var oldScroll:Int = xmlPickerScroll;
+		if (FlxG.mouse.wheel != 0)
+			xmlPickerScroll -= FlxG.mouse.wheel * 3;
+		if (FlxG.keys.justPressed.UP)
+			xmlPickerScroll--;
+		if (FlxG.keys.justPressed.DOWN)
+			xmlPickerScroll++;
+		if (FlxG.keys.justPressed.PAGEUP)
+			xmlPickerScroll -= XML_PICKER_ROWS;
+		if (FlxG.keys.justPressed.PAGEDOWN)
+			xmlPickerScroll += XML_PICKER_ROWS;
+
+		var clicked:Bool = FlxG.mouse.justPressed && !xmlPickerIgnoreClick;
+		xmlPickerIgnoreClick = false;
+
+		if (clicked)
+		{
+			if (xmlPickerPrev.visible && pickerHit(xmlPickerPrev.x, xmlPickerPrev.y, 80, 24))
+				xmlPickerScroll -= XML_PICKER_ROWS;
+			else if (xmlPickerNext.visible && pickerHit(xmlPickerNext.x, xmlPickerNext.y, 80, 24))
+				xmlPickerScroll += XML_PICKER_ROWS;
+		}
+
+		xmlPickerScroll = Std.int(FlxMath.bound(xmlPickerScroll, 0, maxScroll));
+		if (xmlPickerScroll != oldScroll)
+			refreshXmlPicker();
+
+		// hover + click on rows
+		xmlPickerHover.visible = false;
+		for (i in 0...XML_PICKER_ROWS)
+		{
+			var idx:Int = xmlPickerScroll + i;
+			if (idx >= xmlPickerEntries.length)
+				break;
+
+			var rowY:Float = xmlPickerY + 70 + i * XML_PICKER_ROW_H;
+			if (pickerHit(xmlPickerX + 8, rowY, XML_PICKER_W - 16, XML_PICKER_ROW_H))
+			{
+				xmlPickerHover.y = rowY;
+				xmlPickerHover.visible = true;
+				if (clicked)
+				{
+					var entry:CharacterSheetEntry = xmlPickerEntries[idx];
+					closeXmlPicker();
+					applyXmlEntry(entry);
+					return;
+				}
+				break;
+			}
+		}
+	}
+
+	function applyXmlEntry(entry:CharacterSheetEntry)
+	{
+		var xmlText:String = null;
+		try
+		{
+			#if MODS_ALLOWED
+			xmlText = File.getContent(entry.xmlPath);
+			#else
+			xmlText = Assets.getText(entry.xmlPath);
+			#end
+		}
+		catch (e:Dynamic)
+		{
+			FlxG.log.warn('Could not read ${entry.xmlPath}: $e');
+		}
+
+		var newAnims:Array<AnimArray> = (xmlText != null) ? generateAnimsFromXml(xmlText) : [];
+		if (newAnims.length < 1)
+		{
+			FlxG.log.warn('No animations found in ${entry.xmlPath}');
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			return;
+		}
+
+		// Wipe the old animation data and swap in the generated ones
+		character.animation.destroyAnimations();
+		for (k in [for (key in character.animOffsets.keys()) key])
+			character.animOffsets.remove(k);
+
+		character.animationsArray.splice(0, character.animationsArray.length);
+		for (a in newAnims)
+			character.animationsArray.push(a);
+
+		character.imageFile = entry.key;
+		character.renderType = 'sparrow'; // if the compiler complains about this line, delete it
+		reloadCharacterImage();
+		reloadAnimList();
+		reloadCharacterOptions();
+		if (anims.length > 0)
+			animationDropDown.selectedLabel = anims[0].anim;
+		updateCharacterPositions();
+		updatePointerPos();
+		unsavedProgress = true;
+
+		trace('Generated ${newAnims.length} animations from ${entry.key}.xml');
+	}
+
+	/**
+	 * Reads every <SubTexture name="xxxx0000"/> of a Sparrow XML, groups the frames by prefix
+	 * (name minus the 4 digit frame number) and turns each group into an animation.
+	 */
+	function generateAnimsFromXml(xmlText:String):Array<AnimArray>
+	{
+		var prefixes:Array<String> = [];
+		var seen:Map<String, Bool> = new Map();
+
+		try
+		{
+			var root:Xml = Xml.parse(xmlText).firstElement();
+			if (root == null)
+				return [];
+
+			var frameNum:EReg = ~/[0-9]{4}$/;
+			for (node in root.elementsNamed('SubTexture'))
+			{
+				var name:String = node.get('name');
+				if (name == null)
+					continue;
+				var prefix:String = frameNum.match(name) ? frameNum.matchedLeft() : name;
+				if (!seen.exists(prefix))
+				{
+					seen.set(prefix, true);
+					prefixes.push(prefix);
+				}
+			}
+		}
+		catch (e:Dynamic)
+		{
+			FlxG.log.warn('Invalid XML: $e');
+			return [];
+		}
+
+		// If a prefix is the beginning of another one ("BF NOTE LEFT" / "BF NOTE LEFT MISS"),
+		// add a "0" so addByPrefix doesn't grab frames of both (the base game does the same: "BF NOTE LEFT0").
+		var searchNames:Array<String> = [];
+		for (p in prefixes)
+		{
+			var clash:Bool = false;
+			for (o in prefixes)
+				if (o != p && o.startsWith(p))
+				{
+					clash = true;
+					break;
+				}
+			searchNames.push(clash ? p + '0' : p);
+		}
+
+		// Guess names. Higher score = more confident, and wins when two prefixes want the same name.
+		var guessNames:Array<String> = [];
+		var guessScores:Array<Int> = [];
+		for (p in prefixes)
+		{
+			var g = guessAnimName(p);
+			guessNames.push(g.name);
+			guessScores.push(g.score);
+		}
+
+		var order:Array<Int> = [for (i in 0...prefixes.length) i];
+		order.sort(function(a:Int, b:Int):Int return guessScores[a] != guessScores[b] ? guessScores[b] - guessScores[a] : a - b);
+
+		var taken:Map<String, Bool> = new Map();
+		var finalNames:Array<String> = [for (_ in prefixes) ''];
+		for (i in order)
+		{
+			var animName:String = guessNames[i];
+			if (taken.exists(animName))
+			{
+				// Same name already used: fall back to the raw prefix so nothing is lost
+				animName = ~/[0-9]+$/.replace(prefixes[i], '').trim();
+				if (animName.length < 1)
+					animName = prefixes[i];
+				var base:String = animName;
+				var n:Int = 2;
+				while (taken.exists(animName))
+					animName = base + (n++);
+			}
+			taken.set(animName, true);
+			finalNames[i] = animName;
+		}
+
+		// Sort: idle, danceLeft/Right, singLEFT/DOWN/UP/RIGHT, their variants, then the rest in XML order
+		var baseOrder:Array<String> = ['idle', 'danceLeft', 'danceRight', 'singLEFT', 'singDOWN', 'singUP', 'singRIGHT'];
+		var ranks:Array<Int> = [];
+		for (i in 0...prefixes.length)
+		{
+			var an:String = finalNames[i];
+			var r:Int = baseOrder.indexOf(an);
+			if (r < 0)
+			{
+				r = 100;
+				for (bi in 0...baseOrder.length)
+					if (an.startsWith(baseOrder[bi]))
+					{
+						r = 10 + bi;
+						break;
+					}
+			}
+			ranks.push(r);
+		}
+		var sorted:Array<Int> = [for (i in 0...prefixes.length) i];
+		sorted.sort(function(a:Int, b:Int):Int return ranks[a] != ranks[b] ? ranks[a] - ranks[b] : a - b);
+
+		var result:Array<AnimArray> = [];
+		for (i in sorted)
+		{
+			var anim:AnimArray = newAnim(finalNames[i], searchNames[i]);
+			anim.fps = 24;
+			anim.loop = false;
+			result.push(anim);
+		}
+		return result;
+	}
+
+	function guessAnimName(prefix:String):{name:String, score:Int}
+	{
+		// "singLEFT" -> "sing LEFT", so words can be told apart
+		var s:String = ~/([a-z])([A-Z])/g.replace(prefix, "$1 $2").toLowerCase();
+
+		var isMiss:Bool = s.contains('miss');
+		s = ~/miss/g.replace(s, ' ');
+		var isAlt:Bool = ~/(^|[^a-z])alt([^a-z]|$)/.match(s);
+		var altSuffix:String = isAlt ? '-alt' : '';
+
+		var danceReg:EReg = ~/dance[^a-z]*(left|right)/;
+		if (danceReg.match(s))
+			return {name: 'dance' + (danceReg.matched(1) == 'left' ? 'Left' : 'Right'), score: 2};
+
+		var dirReg:EReg = ~/(^|[^a-z])(left|down|up|right)([^a-z]|$)/;
+		if (dirReg.match(s))
+		{
+			var hasSingWord:Bool = ~/(sing|note)/.match(s);
+			return {
+				name: 'sing' + dirReg.matched(2).toUpperCase() + altSuffix + (isMiss ? 'miss' : ''),
+				score: hasSingWord ? 2 : 1
+			};
+		}
+
+		if (~/(^|[^a-z])(idle|dance|dancing)([^a-z]|$)/.match(s))
+			return {name: 'idle' + altSuffix, score: 2};
+
+		var fallback:String = ~/[0-9]+$/.replace(prefix, '').trim();
+		return {name: fallback.length > 0 ? fallback : prefix, score: 0};
+	}
+
 	// save
 	var _file:FileReference;
 
@@ -1644,4 +2145,11 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		draggingCharacter = false;
 		super.destroy();
 	}
+}
+
+typedef CharacterSheetEntry =
+{
+	var key:String; // e.g. characters/bf, relative to images/ and without extension
+	var xmlPath:String;
+	var hasJson:Bool;
 }
