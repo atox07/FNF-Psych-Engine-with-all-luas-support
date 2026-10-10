@@ -128,7 +128,8 @@ You need to have:
 - **Psych 0.6.3 Lua Compatibility Layer (Hardcoded & Wrapper):** Added support for legacy Psych 0.6.3 Lua scripts using a dedicated wrapper in the `scripts/` folder, which is also natively injected and hardcoded into the source code to ensure automatic real-time conversion.
 - **Dialogue Pixel Editor:** Added a new dedicated editor that allows you to easily edit and customize Week 6 pixel dialogues directly in-game.
 - **Change Stage Event:** Built-in hardcoded stage changing event designed for instantaneous switching with zero frame drops or lag.
-- **Character JSON Generator (Anims from XML):** Added a new "Anims from XML" button in the Character Editor that lets you pick any .xml + .png spritesheet from images/characters/ and automatically generates the character's animations json. (Will be added in 1.1)
+- **Character JSON Generator (Anims from XML):** Added a new "Anims from XML" button in the Character Editor that lets you pick any .xml + .png spritesheet from images/characters/ and automatically generates the character's animations json.
+-  **MIDI to Chart System (Import MIDI):** Added a new "Import MIDI..." option in the Chart Editor that generates chart notes from .mid / .midi files.
 
 # Features inherited from Plus Engine (after 1.0.4)
 
