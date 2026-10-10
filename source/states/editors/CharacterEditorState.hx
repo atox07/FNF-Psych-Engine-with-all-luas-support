@@ -692,7 +692,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		var animsFromXml:PsychUIButton = new PsychUIButton(reloadImage.x, decideIconColor.y + 33, "Anims from XML", function()
 		{
 			openXmlPicker();
-		});
+		}, 110);
 		animsFromXml.normalStyle.bgColor = FlxColor.fromRGB(40, 140, 70);
 		animsFromXml.normalStyle.textColor = FlxColor.WHITE;
 
