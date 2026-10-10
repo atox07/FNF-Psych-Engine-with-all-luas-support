@@ -91,7 +91,11 @@ class StageData
 			var path:String = Paths.getPath('stages/' + stage + '.json', TEXT, null, true);
 			var rawJson:String = AssetLoader.loadText(path);
 			if (rawJson != null && rawJson.length > 0)
-				return cast tjson.TJSON.parse(rawJson);
+			{
+				var parsed:StageFile = normalizeStageFile(tjson.TJSON.parse(rawJson));
+				if (parsed != null)
+					return parsed;
+			}
 		}
 		catch (e:Dynamic)
 		{
@@ -102,6 +106,41 @@ class StageData
 			return getStageFile(DEFAULT_STAGE);
 
 		return dummy();
+	}
+
+	/**
+	 * Completa uno stage JSON legacy (0.6.3 e precedenti, o scritto a mano) con i default di dummy().
+	 * Lavora solo in memoria: il file su disco non viene mai riscritto.
+	 */
+	static function normalizeStageFile(json:Dynamic):StageFile
+	{
+		if (json == null || Type.typeof(json) != TObject)
+			return null;
+
+		var defaults:Dynamic = dummy();
+
+		// Valori scalari: se mancano (es. defaultZoom assente = zoom 0 = schermo nero)
+		for (key in ['directory', 'defaultZoom', 'hide_girlfriend', 'camera_speed'])
+		{
+			if (Reflect.field(json, key) == null)
+				Reflect.setField(json, key, Reflect.field(defaults, key));
+		}
+
+		// Coordinate [x, y]: se mancano o sono malformate
+		for (key in ['boyfriend', 'girlfriend', 'opponent', 'camera_boyfriend', 'camera_opponent', 'camera_girlfriend'])
+		{
+			var value:Dynamic = Reflect.field(json, key);
+			var valid:Bool = value != null && Std.isOfType(value, Array) && (cast value : Array<Dynamic>).length > 1;
+			if (!valid)
+				Reflect.setField(json, key, Reflect.field(defaults, key));
+		}
+
+		// 0.6.3 usa isPixelStage, la 1.0.x usa stageUI
+		var ui:Dynamic = Reflect.field(json, 'stageUI');
+		if (ui == null || Std.string(ui).trim().length < 1)
+			Reflect.setField(json, 'stageUI', (Reflect.field(json, 'isPixelStage') == true) ? 'pixel' : 'normal');
+
+		return cast json;
 	}
 
 	public static function vanillaSongStage(songName):String
