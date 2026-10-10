@@ -516,7 +516,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if (chartEditorSave.data.infoBoxPosition != null && chartEditorSave.data.infoBoxPosition.length > 1)
 			infoBox.setPosition(chartEditorSave.data.infoBoxPosition[0], chartEditorSave.data.infoBoxPosition[1]);
 
-		upperBox = new PsychUIBox(40, 40, 330, 300, ['File', 'Edit', 'View']);
+		upperBox = new PsychUIBox(40, 40, 330, 325, ['File', 'Edit', 'View']);
 		upperBox.scrollFactor.set();
 		upperBox.isMinimized = true;
 		upperBox.minimizeOnFocusLost = true;
@@ -524,6 +524,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		upperBox.cameras = [camUI];
 		upperBox.bg.visible = false;
 		add(upperBox);
+		addMidiPicker();
 
 		outputToast = new ChartEditorToast(camUI);
 		add(outputToast);
@@ -811,6 +812,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	override function update(elapsed:Float)
 	{
+		if (midiPickerOpen)
+		{
+			updateMidiPicker();
+			return;
+		}
+
 		// Mostrar overlay cuando hay un archivo siendo arrastrado
 		#if desktop
 		if (droppedFilePath != null || (FlxG.stage != null && FlxG.stage.window != null))
@@ -4857,6 +4864,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 		#end
 
+		btnY += 20;
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Import MIDI...', function()
+		{
+			upperBox.isMinimized = true;
+			upperBox.bg.visible = false;
+			openMidiPicker();
+		}, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
+
 		btnY++;
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Save', function()
@@ -6212,8 +6229,807 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			text.destroy();
 
 		MetaNote.noteTypeTexts = [];
+		midiFileRef = null;
 		fileDialog.destroy();
 		super.destroy();
+	}
+
+	// ---------------------------------------------------------------
+	// IMPORT MIDI (File > Import MIDI...)
+	// ---------------------------------------------------------------
+	static inline var MIDI_ROWS:Int = 10;
+	static inline var MIDI_PICKER_W:Int = 640;
+	static inline var MIDI_ROW_H:Int = 26;
+	static inline var MIDI_SUSTAIN_MIN_STEPS:Float = 4; // notes at least this long (in steps) become sustains
+
+	var midiPickerGroup:FlxSpriteGroup;
+	var midiPickerOpen:Bool = false;
+	var midiPickerIgnoreClick:Bool = false;
+	var midiPickerX:Float = 0;
+	var midiPickerY:Float = 0;
+
+	var midiEntries:Array<MidiFileEntry> = [];
+	var midiScroll:Int = 0;
+	var midiSelIndex:Int = -1; // index in the list, -1 when the file comes from "Browse..."
+	var midiSelName:String = null;
+	var midiSelData:MidiData = null;
+	var midiSelError:String = null;
+
+	var midiRows:Array<FlxText> = [];
+	var midiHoverRect:FlxSprite;
+	var midiSelRect:FlxSprite;
+	var midiSubText:FlxText;
+	var midiInfoText:FlxText;
+	var midiWarnText:FlxText;
+	var midiBtnBrowse:MidiPickerButton;
+	var midiBtnPrev:MidiPickerButton;
+	var midiBtnNext:MidiPickerButton;
+	var midiBtnImport:MidiPickerButton;
+	var midiBtnCancel:MidiPickerButton;
+	var midiFileRef:openfl.net.FileReference = null;
+
+	function makeMidiRect(x:Float, y:Float, w:Float, h:Float, color:FlxColor, alpha:Float = 1):FlxSprite
+	{
+		var spr:FlxSprite = new FlxSprite(x, y).makeGraphic(1, 1, color);
+		spr.scale.set(w, h);
+		spr.updateHitbox();
+		spr.alpha = alpha;
+		spr.scrollFactor.set();
+		spr.active = false;
+		return spr;
+	}
+
+	function makeMidiText(x:Float, y:Float, w:Float, txt:String, size:Int = 14, color:FlxColor = FlxColor.WHITE,
+			align:flixel.text.FlxText.FlxTextAlign = LEFT):FlxText
+	{
+		var t:FlxText = new FlxText(x, y, w, txt, size);
+		t.setFormat(Paths.font('vcr.ttf'), size, color, align, OUTLINE_FAST, FlxColor.BLACK);
+		t.borderSize = 1;
+		t.scrollFactor.set();
+		t.wordWrap = false;
+		t.active = false;
+		return t;
+	}
+
+	function makeMidiButton(x:Float, y:Float, w:Float, h:Float, label:String):MidiPickerButton
+	{
+		var bg:FlxSprite = makeMidiRect(x, y, w, h, FlxColor.WHITE);
+		bg.color = 0xFF3A3A4A;
+		var txt:FlxText = makeMidiText(x, y + (h - 16) / 2, w, label, 14, FlxColor.WHITE, CENTER);
+		midiPickerGroup.add(bg);
+		midiPickerGroup.add(txt);
+		return {bg: bg, label: txt};
+	}
+
+	function addMidiPicker()
+	{
+		var panelH:Int = 70 + MIDI_ROWS * MIDI_ROW_H + 102;
+		midiPickerX = Math.round((FlxG.width - MIDI_PICKER_W) / 2);
+		midiPickerY = Math.round((FlxG.height - panelH) / 2);
+
+		midiPickerGroup = new FlxSpriteGroup();
+		midiPickerGroup.scrollFactor.set();
+		midiPickerGroup.cameras = [camUI];
+
+		midiPickerGroup.add(makeMidiRect(0, 0, FlxG.width, FlxG.height, FlxColor.BLACK, 0.7));
+		midiPickerGroup.add(makeMidiRect(midiPickerX - 2, midiPickerY - 2, MIDI_PICKER_W + 4, panelH + 4, FlxColor.WHITE, 0.9));
+		midiPickerGroup.add(makeMidiRect(midiPickerX, midiPickerY, MIDI_PICKER_W, panelH, 0xFF1E1E26));
+
+		midiPickerGroup.add(makeMidiText(midiPickerX + 16, midiPickerY + 12, MIDI_PICKER_W - 32, 'Import MIDI', 20));
+		midiSubText = makeMidiText(midiPickerX + 16, midiPickerY + 42, MIDI_PICKER_W - 32, '', 12, 0xFFB0B0B0);
+		midiPickerGroup.add(midiSubText);
+
+		midiSelRect = makeMidiRect(midiPickerX + 8, midiPickerY + 70, MIDI_PICKER_W - 16, MIDI_ROW_H, 0xFF2E6B45, 0.9);
+		midiSelRect.visible = false;
+		midiPickerGroup.add(midiSelRect);
+		midiHoverRect = makeMidiRect(midiPickerX + 8, midiPickerY + 70, MIDI_PICKER_W - 16, MIDI_ROW_H, 0xFF3A5A9A, 0.8);
+		midiHoverRect.visible = false;
+		midiPickerGroup.add(midiHoverRect);
+
+		midiRows = [];
+		for (i in 0...MIDI_ROWS)
+		{
+			var row:FlxText = makeMidiText(midiPickerX + 18, midiPickerY + 74 + i * MIDI_ROW_H, MIDI_PICKER_W - 36, '');
+			midiRows.push(row);
+			midiPickerGroup.add(row);
+		}
+
+		var footerY:Float = midiPickerY + 70 + MIDI_ROWS * MIDI_ROW_H;
+		midiInfoText = makeMidiText(midiPickerX + 16, footerY + 8, MIDI_PICKER_W - 32, '', 12, 0xFFE0E0E0);
+		midiWarnText = makeMidiText(midiPickerX + 16, footerY + 30, MIDI_PICKER_W - 32, '', 12, 0xFFFFB020);
+		midiPickerGroup.add(midiInfoText);
+		midiPickerGroup.add(midiWarnText);
+
+		var btnY:Float = footerY + 62;
+		midiBtnBrowse = makeMidiButton(midiPickerX + 16, btnY, 110, 28, 'Browse...');
+		midiBtnPrev = makeMidiButton(midiPickerX + 140, btnY, 70, 28, '< Prev');
+		midiBtnNext = makeMidiButton(midiPickerX + 216, btnY, 70, 28, 'Next >');
+		midiBtnCancel = makeMidiButton(midiPickerX + MIDI_PICKER_W - 16 - 90, btnY, 90, 28, 'Cancel');
+		midiBtnImport = makeMidiButton(midiPickerX + MIDI_PICKER_W - 16 - 90 - 8 - 110, btnY, 110, 28, 'Import');
+
+		midiPickerGroup.visible = false;
+		midiPickerGroup.active = false;
+		add(midiPickerGroup);
+	}
+
+	function scanMidiFiles():Array<MidiFileEntry>
+	{
+		var found:Map<String, MidiFileEntry> = new Map();
+		// assets/midi/ plus the midi/ folder of global mods, the mods root and the current mod (later ones override)
+		var folders:Array<String> = Mods.directoriesWithFile('assets/', 'midi/');
+		for (folder in folders)
+			scanMidiFolder(folder, '', found, 0);
+
+		var result:Array<MidiFileEntry> = [for (e in found) e];
+		result.sort(function(a:MidiFileEntry, b:MidiFileEntry):Int
+		{
+			var ak:String = a.name.toLowerCase();
+			var bk:String = b.name.toLowerCase();
+			return ak < bk ? -1 : (ak > bk ? 1 : 0);
+		});
+		return result;
+	}
+
+	function scanMidiFolder(folder:String, prefix:String, found:Map<String, MidiFileEntry>, depth:Int)
+	{
+		for (file in Paths.readDirectory(folder))
+		{
+			if (FileSystem.isDirectory(folder + file))
+			{
+				if (depth < 2)
+					scanMidiFolder(folder + file + '/', prefix + file + '/', found, depth + 1);
+				continue;
+			}
+
+			var lower:String = file.toLowerCase();
+			if (!lower.endsWith('.mid') && !lower.endsWith('.midi'))
+				continue;
+
+			found.set(prefix + file, {name: prefix + file, path: folder + file});
+		}
+	}
+
+	function openMidiPicker()
+	{
+		setSongPlaying(false);
+		midiEntries = scanMidiFiles();
+		midiScroll = 0;
+		midiSelIndex = -1;
+		midiSelName = null;
+		midiSelData = null;
+		midiSelError = null;
+
+		// group.visible overrides every member, so show it first and let refresh hide what is not needed
+		midiPickerGroup.visible = true;
+		midiHoverRect.visible = false;
+		refreshMidiPicker();
+		midiPickerOpen = true;
+		midiPickerIgnoreClick = true;
+	}
+
+	function closeMidiPicker()
+	{
+		midiPickerGroup.visible = false;
+		midiPickerOpen = false;
+	}
+
+	function refreshMidiPicker()
+	{
+		var maxScroll:Int = Std.int(Math.max(0, midiEntries.length - MIDI_ROWS));
+		midiScroll = Std.int(FlxMath.bound(midiScroll, 0, maxScroll));
+
+		for (i in 0...MIDI_ROWS)
+		{
+			var row:FlxText = midiRows[i];
+			var idx:Int = midiScroll + i;
+			if (idx < midiEntries.length)
+			{
+				var label:String = midiEntries[idx].name;
+				if (label.length > 62)
+					label = '...' + label.substr(label.length - 59);
+				row.text = label;
+				row.color = FlxColor.WHITE;
+				row.visible = true;
+			}
+			else if (i == 0 && midiEntries.length == 0)
+			{
+				row.text = 'No MIDI files found in midi/ folders. Use "Browse..." below.';
+				row.color = 0xFFFF8080;
+				row.visible = true;
+			}
+			else
+				row.visible = false;
+		}
+
+		var selRow:Int = midiSelIndex - midiScroll;
+		midiSelRect.visible = (midiSelIndex >= 0 && selRow >= 0 && selRow < MIDI_ROWS);
+		if (midiSelRect.visible)
+			midiSelRect.y = midiPickerY + 70 + selRow * MIDI_ROW_H;
+
+		midiSubText.text = 'Click a file to select it, click again (or press ENTER) to import.   ${midiEntries.length} found.';
+
+		if (midiSelName == null)
+			midiInfoText.text = '';
+		else if (midiSelData != null)
+		{
+			var bpmStr:String = Std.string(Math.round(midiSelData.bpm * 100) / 100);
+			midiInfoText.text = 'Selected: $midiSelName   ($bpmStr BPM, ${midiSelData.notes.length} notes)';
+		}
+		else
+			midiInfoText.text = 'Selected: $midiSelName';
+
+		if (midiSelError != null)
+		{
+			midiWarnText.text = '[!] $midiSelError';
+			midiWarnText.color = 0xFFFF6060;
+			midiWarnText.visible = true;
+		}
+		else if (midiSelData != null && midiSelData.tempoChanges)
+		{
+			midiWarnText.text = '[!] This MIDI contains BPM changes. You may need to adjust the chart manually.';
+			midiWarnText.color = 0xFFFFB020;
+			midiWarnText.visible = true;
+		}
+		else
+			midiWarnText.visible = false;
+
+		var showPrev:Bool = midiScroll > 0;
+		var showNext:Bool = midiScroll < maxScroll;
+		midiBtnPrev.bg.visible = midiBtnPrev.label.visible = showPrev;
+		midiBtnNext.bg.visible = midiBtnNext.label.visible = showNext;
+		midiBtnImport.label.alpha = (midiSelData != null) ? 1 : 0.4;
+	}
+
+	function midiHit(x:Float, y:Float, w:Float, h:Float):Bool
+	{
+		var mx:Float = FlxG.mouse.screenX;
+		var my:Float = FlxG.mouse.screenY;
+		return mx >= x && mx <= x + w && my >= y && my <= y + h;
+	}
+
+	function selectMidiEntry(idx:Int)
+	{
+		if (idx < 0 || idx >= midiEntries.length)
+			return;
+
+		var entry:MidiFileEntry = midiEntries[idx];
+		var bytes:Bytes = null;
+		try
+		{
+			bytes = File.getBytes(entry.path);
+		}
+		catch (e:Dynamic)
+		{
+		}
+
+		if (bytes == null)
+		{
+			midiSelIndex = idx;
+			midiSelName = entry.name;
+			midiSelData = null;
+			midiSelError = 'Could not read this file.';
+			refreshMidiPicker();
+			return;
+		}
+		selectMidiBytes(entry.name, idx, bytes);
+	}
+
+	function selectMidiBytes(name:String, idx:Int, bytes:Bytes)
+	{
+		midiSelIndex = idx;
+		midiSelName = name;
+		midiSelData = null;
+		midiSelError = null;
+		try
+		{
+			midiSelData = parseMidi(bytes);
+			if (midiSelData.notes.length < 1)
+			{
+				midiSelData = null;
+				midiSelError = 'This MIDI has no notes.';
+			}
+		}
+		catch (e:Dynamic)
+		{
+			midiSelData = null;
+			midiSelError = Std.isOfType(e, String) ? cast(e, String) : 'Corrupt or unsupported MIDI file.';
+		}
+		refreshMidiPicker();
+	}
+
+	function importSelectedMidi()
+	{
+		if (midiSelData == null)
+		{
+			FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
+			return;
+		}
+
+		var data:MidiData = midiSelData;
+		var name:String = midiSelName;
+		closeMidiPicker();
+
+		var func:Void->Void = function() applyMidiImport(data, name);
+		if (!ignoreProgressCheckBox.checked)
+			openSubState(new Prompt('Warning: This will replace all notes\nof the current chart.', func));
+		else
+			func();
+	}
+
+	function updateMidiPicker()
+	{
+		if (FlxG.keys.justPressed.ESCAPE)
+		{
+			closeMidiPicker();
+			return;
+		}
+
+		if (FlxG.keys.justPressed.ENTER)
+		{
+			importSelectedMidi();
+			return;
+		}
+
+		var oldScroll:Int = midiScroll;
+		if (FlxG.mouse.wheel != 0)
+			midiScroll -= FlxG.mouse.wheel * 3;
+		if (FlxG.keys.justPressed.PAGEUP)
+			midiScroll -= MIDI_ROWS;
+		if (FlxG.keys.justPressed.PAGEDOWN)
+			midiScroll += MIDI_ROWS;
+
+		if (midiEntries.length > 0 && (FlxG.keys.justPressed.UP || FlxG.keys.justPressed.DOWN))
+		{
+			var next:Int = midiSelIndex + (FlxG.keys.justPressed.UP ? -1 : 1);
+			next = Std.int(FlxMath.bound(next, 0, midiEntries.length - 1));
+			if (next < midiScroll)
+				midiScroll = next;
+			else if (next >= midiScroll + MIDI_ROWS)
+				midiScroll = next - MIDI_ROWS + 1;
+			selectMidiEntry(next);
+		}
+
+		var clicked:Bool = FlxG.mouse.justPressed && !midiPickerIgnoreClick;
+		midiPickerIgnoreClick = false;
+
+		// footer buttons
+		var buttons:Array<MidiPickerButton> = [midiBtnBrowse, midiBtnPrev, midiBtnNext, midiBtnImport, midiBtnCancel];
+		var hoverBtn:MidiPickerButton = null;
+		for (b in buttons)
+		{
+			if (b.bg.visible && midiHit(b.bg.x, b.bg.y, b.bg.width, b.bg.height))
+				hoverBtn = b;
+			b.bg.color = (b == hoverBtn) ? 0xFF5A5A78 : 0xFF3A3A4A;
+		}
+
+		if (clicked && hoverBtn != null)
+		{
+			if (hoverBtn == midiBtnBrowse)
+				browseMidiFile();
+			else if (hoverBtn == midiBtnPrev)
+				midiScroll -= MIDI_ROWS;
+			else if (hoverBtn == midiBtnNext)
+				midiScroll += MIDI_ROWS;
+			else if (hoverBtn == midiBtnImport)
+			{
+				importSelectedMidi();
+				return;
+			}
+			else if (hoverBtn == midiBtnCancel)
+			{
+				closeMidiPicker();
+				return;
+			}
+			clicked = false;
+		}
+
+		var maxScroll:Int = Std.int(Math.max(0, midiEntries.length - MIDI_ROWS));
+		midiScroll = Std.int(FlxMath.bound(midiScroll, 0, maxScroll));
+		if (midiScroll != oldScroll)
+			refreshMidiPicker();
+
+		// hover + click on list rows
+		midiHoverRect.visible = false;
+		for (i in 0...MIDI_ROWS)
+		{
+			var idx:Int = midiScroll + i;
+			if (idx >= midiEntries.length)
+				break;
+
+			var rowY:Float = midiPickerY + 70 + i * MIDI_ROW_H;
+			if (midiHit(midiPickerX + 8, rowY, MIDI_PICKER_W - 16, MIDI_ROW_H))
+			{
+				midiHoverRect.y = rowY;
+				midiHoverRect.visible = (idx != midiSelIndex);
+				if (clicked)
+				{
+					if (idx == midiSelIndex)
+					{
+						importSelectedMidi();
+						return;
+					}
+					FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+					selectMidiEntry(idx);
+				}
+				break;
+			}
+		}
+	}
+
+	// "Browse..." (system file dialog)
+	function browseMidiFile()
+	{
+		if (midiFileRef != null)
+			return;
+
+		midiFileRef = new openfl.net.FileReference();
+		midiFileRef.addEventListener(openfl.events.Event.SELECT, onMidiBrowseSelect);
+		midiFileRef.addEventListener(openfl.events.Event.CANCEL, onMidiBrowseCancel);
+		try
+		{
+			midiFileRef.browse([new openfl.net.FileFilter('MIDI files (*.mid, *.midi)', '*.mid;*.midi')]);
+		}
+		catch (e:Dynamic)
+		{
+			midiFileRef = null;
+			FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
+			trace('Could not open the file browser: $e');
+		}
+	}
+
+	function onMidiBrowseSelect(_):Void
+	{
+		if (midiFileRef == null)
+			return;
+
+		midiFileRef.removeEventListener(openfl.events.Event.SELECT, onMidiBrowseSelect);
+		midiFileRef.removeEventListener(openfl.events.Event.CANCEL, onMidiBrowseCancel);
+		midiFileRef.addEventListener(openfl.events.Event.COMPLETE, onMidiBrowseLoaded);
+		midiFileRef.addEventListener(openfl.events.IOErrorEvent.IO_ERROR, onMidiBrowseError);
+		midiFileRef.load();
+	}
+
+	function onMidiBrowseCancel(_):Void
+	{
+		midiFileRef = null;
+	}
+
+	function onMidiBrowseError(_):Void
+	{
+		midiFileRef = null;
+		if (midiPickerOpen)
+		{
+			midiSelIndex = -1;
+			midiSelData = null;
+			midiSelError = 'Could not read the selected file.';
+			refreshMidiPicker();
+		}
+	}
+
+	function onMidiBrowseLoaded(_):Void
+	{
+		if (midiFileRef == null)
+			return;
+
+		var name:String = midiFileRef.name;
+		var data:openfl.utils.ByteArray = midiFileRef.data;
+		midiFileRef = null;
+		if (data == null || !midiPickerOpen)
+			return;
+
+		var len:Int = Std.int(data.length);
+		var bytes:Bytes = Bytes.alloc(len);
+		for (i in 0...len)
+			bytes.set(i, data[i]);
+
+		selectMidiBytes(name + ' (browsed)', -1, bytes);
+	}
+
+	// ---------------------------------------------------------------
+	// MIDI parser (Standard MIDI File, format 0/1/2)
+	// ---------------------------------------------------------------
+	function readMidiVlq(inp:haxe.io.BytesInput):Int
+	{
+		var value:Int = 0;
+		for (i in 0...4)
+		{
+			var b:Int = inp.readByte();
+			value = (value << 7) | (b & 0x7F);
+			if ((b & 0x80) == 0)
+				break;
+		}
+		return value;
+	}
+
+	function parseMidi(bytes:Bytes):MidiData
+	{
+		var inp:haxe.io.BytesInput = new haxe.io.BytesInput(bytes);
+		inp.bigEndian = true;
+
+		if (bytes.length < 14 || inp.readString(4) != 'MThd')
+			throw 'This is not a valid MIDI file.';
+
+		var headerLen:Int = inp.readInt32();
+		inp.readUInt16(); // format
+		var trackCount:Int = inp.readUInt16();
+		var division:Int = inp.readUInt16();
+		if (headerLen > 6)
+			inp.position += headerLen - 6;
+		if ((division & 0x8000) != 0)
+			throw 'SMPTE time division MIDI files are not supported.';
+		if (division < 1)
+			throw 'Invalid MIDI time division.';
+
+		var notes:Array<MidiNoteEvent> = [];
+		var tempos:Array<{tick:Int, us:Int}> = [];
+
+		for (t in 0...trackCount)
+		{
+			if (inp.position + 8 > bytes.length)
+				break;
+
+			var chunkId:String = inp.readString(4);
+			var chunkLen:Int = inp.readInt32();
+			var chunkEnd:Int = Std.int(Math.min(inp.position + chunkLen, bytes.length));
+			if (chunkId != 'MTrk')
+			{
+				inp.position = chunkEnd;
+				continue;
+			}
+
+			var tick:Int = 0;
+			var running:Int = 0;
+			var open:Map<Int, MidiNoteEvent> = new Map();
+
+			while (inp.position < chunkEnd)
+			{
+				tick += readMidiVlq(inp);
+
+				var status:Int = inp.readByte();
+				if (status < 0x80) // running status
+				{
+					if (running == 0)
+						throw 'Corrupt MIDI data.';
+					inp.position -= 1;
+					status = running;
+				}
+				else if (status < 0xF0)
+					running = status;
+				else
+					running = 0;
+
+				if (status == 0xFF) // meta event
+				{
+					var metaType:Int = inp.readByte();
+					var metaLen:Int = readMidiVlq(inp);
+					if (metaType == 0x51 && metaLen == 3) // Set Tempo
+					{
+						var b1:Int = inp.readByte();
+						var b2:Int = inp.readByte();
+						var b3:Int = inp.readByte();
+						tempos.push({tick: tick, us: (b1 << 16) | (b2 << 8) | b3});
+					}
+					else
+						inp.position += metaLen;
+
+					if (metaType == 0x2F) // End of track
+						break;
+				}
+				else if (status == 0xF0 || status == 0xF7) // sysex
+				{
+					inp.position += readMidiVlq(inp);
+				}
+				else if (status < 0xF0)
+				{
+					var channel:Int = status & 0x0F;
+					switch (status & 0xF0)
+					{
+						case 0x80: // note off
+							var pitchOff:Int = inp.readByte();
+							inp.readByte();
+							var keyOff:Int = (channel << 7) | pitchOff;
+							var prevOff:MidiNoteEvent = open.get(keyOff);
+							if (prevOff != null)
+							{
+								prevOff.endTick = tick;
+								open.remove(keyOff);
+							}
+						case 0x90: // note on (velocity 0 = note off)
+							var pitchOn:Int = inp.readByte();
+							var velocity:Int = inp.readByte();
+							var keyOn:Int = (channel << 7) | pitchOn;
+							var prevOn:MidiNoteEvent = open.get(keyOn);
+							if (prevOn != null)
+							{
+								prevOn.endTick = tick;
+								open.remove(keyOn);
+							}
+							if (velocity > 0)
+							{
+								var note:MidiNoteEvent = {
+									tick: tick,
+									endTick: tick,
+									channel: channel,
+									pitch: pitchOn
+								};
+								notes.push(note);
+								open.set(keyOn, note);
+							}
+						case 0xC0, 0xD0: // program change / channel pressure
+							inp.readByte();
+						default: // key pressure, control change, pitch bend
+							inp.readByte();
+							inp.readByte();
+					}
+				}
+			}
+
+			for (n in open) // notes never closed end with the track
+				n.endTick = tick;
+			inp.position = chunkEnd;
+		}
+
+		// First BPM found, and whether the file changes tempo later on
+		var firstTempo:{tick:Int, us:Int} = null;
+		for (tp in tempos)
+			if (tp.us > 0 && (firstTempo == null || tp.tick < firstTempo.tick))
+				firstTempo = tp;
+
+		var bpm:Float = 120;
+		var tempoChanges:Bool = false;
+		if (firstTempo != null)
+		{
+			bpm = 60000000 / firstTempo.us;
+			for (tp in tempos)
+				if (tp.us > 0 && Math.abs(tp.us - firstTempo.us) > 1)
+					tempoChanges = true;
+		}
+
+		notes.sort(function(a:MidiNoteEvent, b:MidiNoteEvent):Int return a.tick - b.tick);
+		return {
+			division: division,
+			bpm: bpm,
+			tempoChanges: tempoChanges,
+			notes: notes
+		};
+	}
+
+	// ---------------------------------------------------------------
+	// MIDI -> chart
+	// ---------------------------------------------------------------
+	function midiExactLane(pitch:Int):Int
+	{
+		return switch (pitch)
+		{
+			case 60: 0; // C
+			case 62: 1; // D
+			case 64: 2; // E
+			case 65: 3; // F
+			default: -1;
+		}
+	}
+
+	function applyMidiImport(midi:MidiData, name:String)
+	{
+		if (midi.notes.length < 1)
+		{
+			showOutput('This MIDI has no notes.', true);
+			return;
+		}
+
+		// Only the first BPM of the MIDI is used for the whole song
+		var bpm:Float = FlxMath.bound(Math.round(midi.bpm * 1000) / 1000, 1, MAX_EDITOR_BPM);
+		var stepMs:Float = Conductor.calculateCrochet(bpm) / 4;
+
+		// Pitch -> lane. If most notes are C/D/E/F use that fixed mapping, otherwise (and for stray pitches)
+		// split the pitch range of each side in 4 bands: low = left ... high = right.
+		var exactCount:Int = 0;
+		for (n in midi.notes)
+			if (midiExactLane(n.pitch) >= 0)
+				exactCount++;
+		var useExact:Bool = (exactCount / midi.notes.length) >= 0.5;
+
+		var pitchLists:Array<Array<Int>> = [[], []]; // 0 = BF, 1 = Dad
+		for (n in midi.notes)
+			if (!useExact || midiExactLane(n.pitch) < 0)
+				pitchLists[(n.channel == 0) ? 1 : 0].push(n.pitch);
+
+		var thresholds:Array<Array<Int>> = [];
+		for (list in pitchLists)
+		{
+			list.sort(function(a:Int, b:Int):Int return a - b);
+			var t:Array<Int> = [];
+			for (k in 1...4)
+				t.push(list.length > 0 ? list[Std.int(Math.max(0, Math.ceil(list.length * k / 4) - 1))] : 0);
+			thresholds.push(t);
+		}
+
+		function laneFor(side:Int, pitch:Int):Int
+		{
+			if (useExact)
+			{
+				var exact:Int = midiExactLane(pitch);
+				if (exact >= 0)
+					return exact;
+			}
+			var t:Array<Int> = thresholds[side];
+			return pitch <= t[0] ? 0 : (pitch <= t[1] ? 1 : (pitch <= t[2] ? 2 : 3));
+		}
+
+		// Channel 1 -> Dad (opponent), every other channel -> BF (player)
+		var entries:Array<{sec:Int, side:Int, lane:Int, time:Float, sustain:Float}> = [];
+		var seen:Map<String, Bool> = new Map();
+		var maxSec:Int = 0;
+		for (n in midi.notes)
+		{
+			var side:Int = (n.channel == 0) ? 1 : 0;
+			var lane:Int = laneFor(side, n.pitch);
+			var key:String = side + '_' + lane + '_' + n.tick;
+			if (seen.exists(key)) // two pitches landing on the same lane at the same time
+				continue;
+			seen.set(key, true);
+
+			var step:Float = n.tick / midi.division * 4;
+			var sec:Int = Std.int(step / 16);
+			var durSteps:Float = (n.endTick - n.tick) / midi.division * 4;
+			entries.push({
+				sec: sec,
+				side: side,
+				lane: lane,
+				time: step * stepMs,
+				sustain: (durSteps >= MIDI_SUSTAIN_MIN_STEPS) ? durSteps * stepMs : 0
+			});
+			if (sec > maxSec)
+				maxSec = sec;
+		}
+
+		// mustHitSection of every section follows whoever plays more notes in it (keeps the camera sensible)
+		var bfCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
+		var dadCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
+		for (e in entries)
+		{
+			if (e.side == 1)
+				dadCount[e.sec]++;
+			else
+				bfCount[e.sec]++;
+		}
+
+		var mustHit:Array<Bool> = [];
+		var lastMustHit:Bool = true;
+		for (i in 0...maxSec + 1)
+		{
+			if (bfCount[i] + dadCount[i] > 0)
+				lastMustHit = bfCount[i] >= dadCount[i];
+			mustHit.push(lastMustHit);
+		}
+
+		PlayState.SONG.bpm = bpm;
+		PlayState.SONG.notes = [for (i in 0...maxSec + 1) ChartEditorTiming.createBlankSection(bpm, mustHit[i])];
+		for (i in 0...maxSec + 1)
+		{
+			PlayState.SONG.notes[i].mustHitSection = mustHit[i];
+			PlayState.SONG.notes[i].sectionNotes = [];
+		}
+
+		var dadTotal:Int = 0;
+		var bfTotal:Int = 0;
+		for (e in entries)
+		{
+			// data 0-3 is the side that must hit in that section, 4-7 the other one
+			var data:Int = ((e.side == 1) == mustHit[e.sec]) ? e.lane + 4 : e.lane;
+			PlayState.SONG.notes[e.sec].sectionNotes.push([e.time, data, e.sustain]);
+			if (e.side == 1)
+				dadTotal++;
+			else
+				bfTotal++;
+		}
+
+		loadChart(PlayState.SONG);
+		reloadNotesDropdowns();
+		prepareReload();
+
+		warnIfHighBPM(bpm, 'song');
+		showOutput('Imported "$name": ${entries.length} notes (Dad $dadTotal / BF $bfTotal) at $bpm BPM.');
 	}
 
 	#if desktop
@@ -6895,4 +7711,32 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		return [[[0], [0]], [[0], [0]]];
 		#end
 	}
+}
+
+typedef MidiFileEntry =
+{
+	var name:String; // path relative to the midi/ folder
+	var path:String;
+}
+
+typedef MidiNoteEvent =
+{
+	var tick:Int;
+	var endTick:Int;
+	var channel:Int; // 0 = MIDI channel 1
+	var pitch:Int;
+}
+
+typedef MidiData =
+{
+	var division:Int; // ticks per quarter note
+	var bpm:Float; // first Set Tempo found (120 if none)
+	var tempoChanges:Bool; // true if the file has Set Tempo events with a different BPM
+	var notes:Array<MidiNoteEvent>;
+}
+
+typedef MidiPickerButton =
+{
+	var bg:FlxSprite;
+	var label:FlxText;
 }
