@@ -205,6 +205,7 @@ You need to have:
 - You can now chart "Event" notes, which are bookmarks that trigger specific actions that usually were hardcoded on the vanilla version of the game.
 - Your song's BPM can now have decimal values
 - You can manually adjust a Note's strum time if you're really going for milisecond precision
+- You can now import a midi and automaticaly create a chart out of it
 - You can change a note's type on the Editor, it comes with five example types:
   * Alt Animation: Forces an alt animation to play, useful for songs like Ugh/Stress
   * Hey: Forces a "Hey" animation instead of the base Sing animation, if Boyfriend hits this note, Girlfriend will do a "Hey!" too.
