@@ -6267,6 +6267,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var midiBtnImport:MidiPickerButton;
 	var midiBtnCancel:MidiPickerButton;
 	var midiFileRef:openfl.net.FileReference = null;
+	var midiAutoMustHit:Bool = false; // off by default: every section gets mustHitSection = true
+	var midiCheckMark:FlxSprite;
+	var midiCheckX:Float = 0;
+	var midiCheckY:Float = 0;
 
 	function makeMidiRect(x:Float, y:Float, w:Float, h:Float, color:FlxColor, alpha:Float = 1):FlxSprite
 	{
@@ -6303,7 +6307,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	function addMidiPicker()
 	{
-		var panelH:Int = 70 + MIDI_ROWS * MIDI_ROW_H + 102;
+		var panelH:Int = 70 + MIDI_ROWS * MIDI_ROW_H + 128;
 		midiPickerX = Math.round((FlxG.width - MIDI_PICKER_W) / 2);
 		midiPickerY = Math.round((FlxG.height - panelH) / 2);
 
@@ -6340,7 +6344,17 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		midiPickerGroup.add(midiInfoText);
 		midiPickerGroup.add(midiWarnText);
 
-		var btnY:Float = footerY + 62;
+		// "Auto mustHitSection" checkbox (custom, same look as the rest of the picker)
+		midiCheckX = midiPickerX + 16;
+		midiCheckY = footerY + 56;
+		midiPickerGroup.add(makeMidiRect(midiCheckX, midiCheckY, 20, 20, FlxColor.WHITE));
+		midiPickerGroup.add(makeMidiRect(midiCheckX + 2, midiCheckY + 2, 16, 16, 0xFF1E1E26));
+		midiCheckMark = makeMidiRect(midiCheckX + 5, midiCheckY + 5, 10, 10, 0xFF4CD27A);
+		midiPickerGroup.add(midiCheckMark);
+		midiPickerGroup.add(makeMidiText(midiCheckX + 30, midiCheckY + 2, MIDI_PICKER_W - 60,
+			'Auto mustHitSection  (camera follows whoever plays more notes in each section)', 12, 0xFFE0E0E0));
+
+		var btnY:Float = footerY + 88;
 		midiBtnBrowse = makeMidiButton(midiPickerX + 16, btnY, 110, 28, 'Browse...');
 		midiBtnPrev = makeMidiButton(midiPickerX + 140, btnY, 70, 28, '< Prev');
 		midiBtnNext = makeMidiButton(midiPickerX + 216, btnY, 70, 28, 'Next >');
@@ -6478,6 +6492,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		midiBtnPrev.bg.visible = midiBtnPrev.label.visible = showPrev;
 		midiBtnNext.bg.visible = midiBtnNext.label.visible = showNext;
 		midiBtnImport.label.alpha = (midiSelData != null) ? 1 : 0.4;
+		midiCheckMark.visible = midiAutoMustHit;
 	}
 
 	function midiHit(x:Float, y:Float, w:Float, h:Float):Bool
@@ -6591,6 +6606,14 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		var clicked:Bool = FlxG.mouse.justPressed && !midiPickerIgnoreClick;
 		midiPickerIgnoreClick = false;
+
+		// checkbox
+		if (clicked && midiHit(midiCheckX, midiCheckY, MIDI_PICKER_W - 32, 22))
+		{
+			midiAutoMustHit = !midiAutoMustHit;
+			refreshMidiPicker();
+			clicked = false;
+		}
 
 		// footer buttons
 		var buttons:Array<MidiPickerButton> = [midiBtnBrowse, midiBtnPrev, midiBtnNext, midiBtnImport, midiBtnCancel];
@@ -6897,75 +6920,42 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	// ---------------------------------------------------------------
 	// MIDI -> chart
 	// ---------------------------------------------------------------
-	function midiExactLane(pitch:Int):Int
+	// Pitch -> lane, in ANY octave: C = left, D = down, E = up, F = right. Everything else returns -1 (skipped).
+	function midiPitchToLane(pitch:Int):Int
 	{
-		return switch (pitch)
+		return switch (pitch % 12)
 		{
-			case 60: 0; // C
-			case 62: 1; // D
-			case 64: 2; // E
-			case 65: 3; // F
+			case 0: 0; // C
+			case 2: 1; // D
+			case 4: 2; // E
+			case 5: 3; // F
 			default: -1;
 		}
 	}
 
 	function applyMidiImport(midi:MidiData, name:String)
 	{
-		if (midi.notes.length < 1)
-		{
-			showOutput('This MIDI has no notes.', true);
-			return;
-		}
-
 		// Only the first BPM of the MIDI is used for the whole song
 		var bpm:Float = FlxMath.bound(Math.round(midi.bpm * 1000) / 1000, 1, MAX_EDITOR_BPM);
 		var stepMs:Float = Conductor.calculateCrochet(bpm) / 4;
 
-		// Pitch -> lane. If most notes are C/D/E/F use that fixed mapping, otherwise (and for stray pitches)
-		// split the pitch range of each side in 4 bands: low = left ... high = right.
-		var exactCount:Int = 0;
-		for (n in midi.notes)
-			if (midiExactLane(n.pitch) >= 0)
-				exactCount++;
-		var useExact:Bool = (exactCount / midi.notes.length) >= 0.5;
-
-		var pitchLists:Array<Array<Int>> = [[], []]; // 0 = BF, 1 = Dad
-		for (n in midi.notes)
-			if (!useExact || midiExactLane(n.pitch) < 0)
-				pitchLists[(n.channel == 0) ? 1 : 0].push(n.pitch);
-
-		var thresholds:Array<Array<Int>> = [];
-		for (list in pitchLists)
-		{
-			list.sort(function(a:Int, b:Int):Int return a - b);
-			var t:Array<Int> = [];
-			for (k in 1...4)
-				t.push(list.length > 0 ? list[Std.int(Math.max(0, Math.ceil(list.length * k / 4) - 1))] : 0);
-			thresholds.push(t);
-		}
-
-		function laneFor(side:Int, pitch:Int):Int
-		{
-			if (useExact)
-			{
-				var exact:Int = midiExactLane(pitch);
-				if (exact >= 0)
-					return exact;
-			}
-			var t:Array<Int> = thresholds[side];
-			return pitch <= t[0] ? 0 : (pitch <= t[1] ? 1 : (pitch <= t[2] ? 2 : 3));
-		}
-
-		// Channel 1 -> Dad (opponent), every other channel -> BF (player)
+		// Channel decides the side (channel 1 = Dad, the rest = BF). Pitch decides ONLY the lane.
 		var entries:Array<{sec:Int, side:Int, lane:Int, time:Float, sustain:Float}> = [];
 		var seen:Map<String, Bool> = new Map();
 		var maxSec:Int = 0;
+		var skipped:Int = 0;
 		for (n in midi.notes)
 		{
-			var side:Int = (n.channel == 0) ? 1 : 0;
-			var lane:Int = laneFor(side, n.pitch);
+			var lane:Int = midiPitchToLane(n.pitch);
+			if (lane < 0) // not C/D/E/F
+			{
+				skipped++;
+				continue;
+			}
+
+			var side:Int = (n.channel == 0) ? 1 : 0; // 1 = Dad, 0 = BF
 			var key:String = side + '_' + lane + '_' + n.tick;
-			if (seen.exists(key)) // two pitches landing on the same lane at the same time
+			if (seen.exists(key)) // same side, lane and time (e.g. C4 and C5 together)
 				continue;
 			seen.set(key, true);
 
@@ -6983,24 +6973,33 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				maxSec = sec;
 		}
 
-		// mustHitSection of every section follows whoever plays more notes in it (keeps the camera sensible)
-		var bfCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
-		var dadCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
-		for (e in entries)
+		if (entries.length < 1)
 		{
-			if (e.side == 1)
-				dadCount[e.sec]++;
-			else
-				bfCount[e.sec]++;
+			showOutput('No C/D/E/F notes found in this MIDI.', true);
+			return;
 		}
 
-		var mustHit:Array<Bool> = [];
-		var lastMustHit:Bool = true;
-		for (i in 0...maxSec + 1)
+		// mustHitSection: always true (camera on BF), unless "Auto mustHitSection" is on
+		var mustHit:Array<Bool> = [for (_ in 0...maxSec + 1) true];
+		if (midiAutoMustHit)
 		{
-			if (bfCount[i] + dadCount[i] > 0)
-				lastMustHit = bfCount[i] >= dadCount[i];
-			mustHit.push(lastMustHit);
+			var bfCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
+			var dadCount:Array<Int> = [for (_ in 0...maxSec + 1) 0];
+			for (e in entries)
+			{
+				if (e.side == 1)
+					dadCount[e.sec]++;
+				else
+					bfCount[e.sec]++;
+			}
+
+			var lastMustHit:Bool = true;
+			for (i in 0...maxSec + 1)
+			{
+				if (bfCount[i] + dadCount[i] > 0)
+					lastMustHit = bfCount[i] >= dadCount[i];
+				mustHit[i] = lastMustHit;
+			}
 		}
 
 		PlayState.SONG.bpm = bpm;
@@ -7029,7 +7028,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		prepareReload();
 
 		warnIfHighBPM(bpm, 'song');
-		showOutput('Imported "$name": ${entries.length} notes (Dad $dadTotal / BF $bfTotal) at $bpm BPM.');
+		var skippedText:String = (skipped > 0) ? ', $skipped non C/D/E/F skipped' : '';
+		showOutput('Imported "$name": ${entries.length} notes (Dad $dadTotal / BF $bfTotal)$skippedText, $bpm BPM.');
 	}
 
 	#if desktop
